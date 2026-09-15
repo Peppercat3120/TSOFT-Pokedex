@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PokemonProfile } from '../components/PokemonProfile';
 import { PokemonDetailLoadingSkeleton } from '../components/LoadingSkeletons';
+import { usePokemonDetailLayout } from '../hooks/usePokemonDetailLayout';
 import { usePokemonDetail } from '../hooks/usePokemonDetail';
 import type { PokemonDetailScreenProps } from '../navigation/RootStackParamList';
 
@@ -17,6 +18,7 @@ export function PokemonDetailScreen({
   route,
   navigation,
 }: PokemonDetailScreenProps) {
+  const horizontal = usePokemonDetailLayout();
   const focused = useIsFocused();
   const {
     state,
@@ -34,9 +36,17 @@ export function PokemonDetailScreen({
       <ScrollView
         testID="pokemon-detail-loading-scroll"
         style={styles.screen}
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) }}
+        scrollEnabled={!horizontal}
+        contentContainerStyle={
+          horizontal
+            ? [
+                styles.horizontalContent,
+                { paddingLeft: insets.left, paddingRight: insets.right },
+              ]
+            : { paddingBottom: Math.max(insets.bottom, 16) }
+        }
       >
-        <PokemonDetailLoadingSkeleton />
+        <PokemonDetailLoadingSkeleton horizontal={horizontal} />
       </ScrollView>
     );
   }
@@ -44,29 +54,49 @@ export function PokemonDetailScreen({
     return (
       <ScrollView
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={refresh} />
+          horizontal ? undefined : (
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} />
+          )
         }
         testID="pokemon-detail-scroll"
         style={styles.screen}
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) }}
+        scrollEnabled={!horizontal}
+        contentContainerStyle={
+          horizontal
+            ? [
+                styles.horizontalContent,
+                { paddingLeft: insets.left, paddingRight: insets.right },
+              ]
+            : { paddingBottom: Math.max(insets.bottom, 16) }
+        }
       >
-        {refreshing && <Text style={styles.message}>Refreshing Pokémon…</Text>}
-        {refreshError && (
-          <Text accessibilityRole="alert" style={styles.message}>
-            {refreshError}
-          </Text>
-        )}
-        {(recoveryExhausted || refreshError !== null) && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Retry updates"
-            onPress={refresh}
-            style={styles.button}
-          >
-            <Text style={styles.buttonText}>Retry updates</Text>
-          </Pressable>
-        )}
         <PokemonProfile
+          horizontal={horizontal}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} />
+          }
+          feedback={
+            <>
+              {refreshing && (
+                <Text style={styles.message}>Refreshing Pokémon…</Text>
+              )}
+              {refreshError && (
+                <Text accessibilityRole="alert" style={styles.message}>
+                  {refreshError}
+                </Text>
+              )}
+              {(recoveryExhausted || refreshError !== null) && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry updates"
+                  onPress={refresh}
+                  style={styles.button}
+                >
+                  <Text style={styles.buttonText}>Retry updates</Text>
+                </Pressable>
+              )}
+            </>
+          }
           pokemon={state.pokemon}
           isStale={state.isStale}
           imageRetryGeneration={imageRetryGeneration}
@@ -110,6 +140,7 @@ export function PokemonDetailScreen({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#FFFFFF' },
+  horizontalContent: { flex: 1 },
   center: {
     flex: 1,
     padding: 24,

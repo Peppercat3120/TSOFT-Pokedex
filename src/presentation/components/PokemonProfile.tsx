@@ -1,6 +1,7 @@
 import type { ImageFailureReporter } from '../hooks/useRetryableImage';
 import { StyleSheet, Text, View } from 'react-native';
-import type { PropsWithChildren } from 'react';
+import type { PropsWithChildren, ReactElement, ReactNode } from 'react';
+import { PokemonDetailPanels } from './PokemonDetailPanels';
 import type { PokemonDetail } from '../../domain/entities/Pokemon';
 import { PokemonArtwork } from './PokemonArtwork';
 
@@ -59,7 +60,13 @@ export function PokemonProfile({
   isStale,
   imageRetryGeneration = 0,
   reportImageFailure,
+  horizontal = false,
+  feedback,
+  refreshControl,
 }: {
+  readonly horizontal?: boolean;
+  readonly feedback?: ReactNode;
+  readonly refreshControl?: ReactElement;
   readonly pokemon: PokemonDetail;
   readonly isStale: boolean;
   readonly imageRetryGeneration?: number;
@@ -75,95 +82,108 @@ export function PokemonProfile({
     (a, b) => rank(a.stat.name) - rank(b.stat.name),
   );
   return (
-    <View style={styles.content}>
-      {isStale && (
-        <Text accessibilityRole="alert" style={styles.banner}>
-          Showing saved data; updates are unavailable.
-        </Text>
-      )}
-      <Text accessibilityRole="header" style={styles.name}>
-        {humanize(pokemon.name)}
-      </Text>
-      <Text testID="pokemon-detail-id" style={styles.identifier}>
-        #{String(pokemon.id).padStart(3, '0')}
-      </Text>
-      <PokemonArtwork
-        imageRetryGeneration={imageRetryGeneration}
-        reportImageFailure={reportImageFailure}
-        key={`${pokemon.id}:${pokemon.sprites.officialArtwork.frontDefault}:${pokemon.sprites.frontDefault}`}
-        artworkUrl={pokemon.sprites.officialArtwork.frontDefault}
-        spriteUrl={pokemon.sprites.frontDefault}
-      />
-      <Section title="Types">
-        {types.length === 0 ? (
-          <Text style={styles.value}>Not available</Text>
-        ) : (
-          <View style={styles.types}>
-            {types.map(entry => (
-              <Text key={entry.slot} style={styles.type}>
-                {humanize(entry.type.name)}
-              </Text>
-            ))}
-          </View>
-        )}
-      </Section>
-      <Section title="Attributes">
-        <Attribute
-          label="Height"
-          value={`${(pokemon.heightDecimetres / 10).toFixed(1)} m`}
-        />
-        <Attribute
-          label="Weight"
-          value={`${(pokemon.weightHectograms / 10).toFixed(1)} kg`}
-        />
-        <Attribute
-          label="Base experience"
-          value={
-            pokemon.baseExperience === null
-              ? 'Not available'
-              : String(pokemon.baseExperience)
-          }
-        />
-      </Section>
-      <Section title="Abilities">
-        {abilities.length === 0 ? (
-          <Text style={styles.value}>Not available</Text>
-        ) : (
-          abilities.map(entry => (
-            <Text key={entry.slot} style={styles.value}>
-              {humanize(entry.ability.name)}
-              {entry.isHidden ? ' (Hidden)' : ''}
+    <PokemonDetailPanels
+      horizontal={horizontal}
+      refreshControl={refreshControl}
+      identity={
+        <>
+          <Text accessibilityRole="header" style={styles.name}>
+            {humanize(pokemon.name)}
+          </Text>
+          <Text testID="pokemon-detail-id" style={styles.identifier}>
+            #{String(pokemon.id).padStart(3, '0')}
+          </Text>
+          <PokemonArtwork
+            imageRetryGeneration={imageRetryGeneration}
+            reportImageFailure={reportImageFailure}
+            key={`${pokemon.id}:${pokemon.sprites.officialArtwork.frontDefault}:${pokemon.sprites.frontDefault}`}
+            artworkUrl={pokemon.sprites.officialArtwork.frontDefault}
+            spriteUrl={pokemon.sprites.frontDefault}
+          />
+        </>
+      }
+      details={
+        <>
+          {feedback}
+
+          {isStale && (
+            <Text accessibilityRole="alert" style={styles.banner}>
+              Showing saved data; updates are unavailable.
             </Text>
-          ))
-        )}
-      </Section>
-      <Section title="Statistics">
-        {stats.length === 0 ? (
-          <Text style={styles.value}>Not available</Text>
-        ) : (
-          <>
-            {stats.map(entry => (
-              <Attribute
-                key={entry.stat.id}
-                label={STAT_NAMES[entry.stat.name] ?? humanize(entry.stat.name)}
-                value={String(entry.baseStat)}
-              />
-            ))}
+          )}
+          <Section title="Types">
+            {types.length === 0 ? (
+              <Text style={styles.value}>Not available</Text>
+            ) : (
+              <View style={styles.types}>
+                {types.map(entry => (
+                  <Text key={entry.slot} style={styles.type}>
+                    {humanize(entry.type.name)}
+                  </Text>
+                ))}
+              </View>
+            )}
+          </Section>
+          <Section title="Attributes">
             <Attribute
-              label="Total"
-              value={String(
-                stats.reduce((total, entry) => total + entry.baseStat, 0),
-              )}
+              label="Height"
+              value={`${(pokemon.heightDecimetres / 10).toFixed(1)} m`}
             />
-          </>
-        )}
-      </Section>
-    </View>
+            <Attribute
+              label="Weight"
+              value={`${(pokemon.weightHectograms / 10).toFixed(1)} kg`}
+            />
+            <Attribute
+              label="Base experience"
+              value={
+                pokemon.baseExperience === null
+                  ? 'Not available'
+                  : String(pokemon.baseExperience)
+              }
+            />
+          </Section>
+          <Section title="Abilities">
+            {abilities.length === 0 ? (
+              <Text style={styles.value}>Not available</Text>
+            ) : (
+              abilities.map(entry => (
+                <Text key={entry.slot} style={styles.value}>
+                  {humanize(entry.ability.name)}
+                  {entry.isHidden ? ' (Hidden)' : ''}
+                </Text>
+              ))
+            )}
+          </Section>
+          <Section title="Statistics">
+            {stats.length === 0 ? (
+              <Text style={styles.value}>Not available</Text>
+            ) : (
+              <>
+                {stats.map(entry => (
+                  <Attribute
+                    key={entry.stat.id}
+                    label={
+                      STAT_NAMES[entry.stat.name] ?? humanize(entry.stat.name)
+                    }
+                    value={String(entry.baseStat)}
+                  />
+                ))}
+                <Attribute
+                  label="Total"
+                  value={String(
+                    stats.reduce((total, entry) => total + entry.baseStat, 0),
+                  )}
+                />
+              </>
+            )}
+          </Section>
+        </>
+      }
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  content: { width: '100%', maxWidth: 640, alignSelf: 'center', padding: 24 },
   name: {
     color: '#111827',
     fontSize: 28,

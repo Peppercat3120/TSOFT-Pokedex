@@ -1,10 +1,7 @@
+import { PokemonDetailPanels } from './PokemonDetailPanels';
 import { StyleSheet, Text, View } from 'react-native';
 
-function SkeletonBlock({
-  style,
-}: {
-  readonly style?: object;
-}) {
+function SkeletonBlock({ style }: { readonly style?: object }) {
   return <View style={[styles.block, style]} />;
 }
 
@@ -43,7 +40,10 @@ export function PokemonListLoadingSkeleton() {
         style={styles.listSkeleton}
       >
         {Array.from({ length: 6 }, (_, index) => (
-          <PokemonRowSkeleton key={index} testID={`pokemon-list-loading-row-${index + 1}`} />
+          <PokemonRowSkeleton
+            key={index}
+            testID={`pokemon-list-loading-row-${index + 1}`}
+          />
         ))}
       </View>
       <LoadingStatus />
@@ -70,40 +70,60 @@ export function PokemonListFooterLoadingSkeleton() {
   );
 }
 
-export function PokemonDetailLoadingSkeleton() {
+export function PokemonDetailLoadingSkeleton({
+  horizontal = false,
+}: {
+  readonly horizontal?: boolean;
+}) {
+  const identity = (
+    <>
+      <SkeletonBlock style={styles.detailName} />
+      <SkeletonBlock style={styles.detailIdentifier} />
+      <SkeletonBlock style={styles.artwork} />
+    </>
+  );
+  const details = (
+    <>
+      <SkeletonBlock style={styles.sectionHeading} />
+      <View style={styles.types}>
+        <SkeletonBlock style={styles.type} />
+        <SkeletonBlock style={styles.shortType} />
+      </View>
+      <SkeletonBlock style={styles.sectionHeading} />
+      {Array.from({ length: 3 }, (_, index) => (
+        <View key={index} style={styles.attribute}>
+          <SkeletonBlock style={styles.attributeLabel} />
+          <SkeletonBlock style={styles.attributeValue} />
+        </View>
+      ))}
+      <SkeletonBlock style={styles.sectionHeading} />
+      {Array.from({ length: 4 }, (_, index) => (
+        <SkeletonBlock key={index} style={styles.ability} />
+      ))}
+      <SkeletonBlock style={styles.sectionHeading} />
+      {Array.from({ length: 4 }, (_, index) => (
+        <View key={index} style={styles.attribute}>
+          <SkeletonBlock style={styles.attributeLabel} />
+          <SkeletonBlock style={styles.attributeValue} />
+        </View>
+      ))}
+    </>
+  );
   return (
-    <View testID="pokemon-detail-loading-skeleton" style={styles.detailLoading}>
+    <View
+      testID="pokemon-detail-loading-skeleton"
+      style={horizontal ? styles.horizontalLoading : styles.detailLoading}
+    >
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        style={styles.detailSkeleton}
+        style={[styles.detailSkeleton, horizontal && styles.horizontalLoading]}
       >
-        <SkeletonBlock style={styles.detailName} />
-        <SkeletonBlock style={styles.detailIdentifier} />
-        <SkeletonBlock style={styles.artwork} />
-        <SkeletonBlock style={styles.sectionHeading} />
-        <View style={styles.types}>
-          <SkeletonBlock style={styles.type} />
-          <SkeletonBlock style={styles.shortType} />
-        </View>
-        <SkeletonBlock style={styles.sectionHeading} />
-        {Array.from({ length: 3 }, (_, index) => (
-          <View key={index} style={styles.attribute}>
-            <SkeletonBlock style={styles.attributeLabel} />
-            <SkeletonBlock style={styles.attributeValue} />
-          </View>
-        ))}
-        <SkeletonBlock style={styles.sectionHeading} />
-        {Array.from({ length: 4 }, (_, index) => (
-          <SkeletonBlock key={index} style={styles.ability} />
-        ))}
-        <SkeletonBlock style={styles.sectionHeading} />
-        {Array.from({ length: 4 }, (_, index) => (
-          <View key={index} style={styles.attribute}>
-            <SkeletonBlock style={styles.attributeLabel} />
-            <SkeletonBlock style={styles.attributeValue} />
-          </View>
-        ))}
+        <PokemonDetailPanels
+          horizontal={horizontal}
+          identity={identity}
+          details={details}
+        />
       </View>
       <LoadingStatus />
     </View>
@@ -133,11 +153,23 @@ const styles = StyleSheet.create({
   rowName: { width: '55%', height: 18 },
   rowIdentifier: { width: '28%', height: 14, marginTop: 10 },
   footerSkeleton: { paddingVertical: 8 },
-  detailLoading: { width: '100%', maxWidth: 640, alignSelf: 'center', padding: 24 },
+  detailLoading: { width: '100%' },
+  horizontalLoading: { flex: 1 },
   detailSkeleton: { width: '100%' },
   detailName: { width: '52%', height: 32, alignSelf: 'center' },
-  detailIdentifier: { width: '20%', height: 18, alignSelf: 'center', marginTop: 12 },
-  artwork: { width: '100%', maxWidth: 240, aspectRatio: 1, alignSelf: 'center', marginVertical: 16 },
+  detailIdentifier: {
+    width: '20%',
+    height: 18,
+    alignSelf: 'center',
+    marginTop: 12,
+  },
+  artwork: {
+    width: '100%',
+    maxWidth: 240,
+    aspectRatio: 1,
+    alignSelf: 'center',
+    marginVertical: 16,
+  },
   sectionHeading: { width: '34%', height: 24, marginTop: 20, marginBottom: 12 },
   types: { flexDirection: 'row' },
   type: { width: 76, height: 34, marginRight: 8 },
