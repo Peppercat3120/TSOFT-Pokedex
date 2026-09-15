@@ -123,6 +123,114 @@ describe('usePokemonDetail', () => {
     expect(controller.refreshing).toBe(false);
   });
 
+  it('retries only images when the detail is fresh', async () => {
+    await mount();
+    await act(async () => controller.reportImageFailure('image', true));
+    await act(async () => {
+      await controller.retryUpdates();
+    });
+    expect(controller.imageRetryGeneration).toBe(1);
+    expect(execute).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await controller.retryUpdates();
+    });
+    expect(controller.imageRetryGeneration).toBe(1);
+    expect(execute).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await controller.refresh();
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+  it.each(['stale', 'feedback'])(
+    'requests detail JSON for pending %s updates',
+    async kind => {
+      if (kind === 'stale') {
+        execute.mockResolvedValueOnce({ ...detail, isStale: true });
+      }
+      await mount();
+      if (kind === 'feedback') {
+        execute.mockRejectedValueOnce(new HttpError(429));
+        await act(async () => {
+          await controller.refresh();
+        });
+      }
+      const calls = execute.mock.calls.length;
+      await act(async () => {
+        await controller.retryUpdates();
+      });
+      expect(execute).toHaveBeenCalledTimes(calls + 1);
+      expect(execute).toHaveBeenLastCalledWith(1, { policy: 'network-first' });
+    },
+  );
+  it('drops redundant targeted updates queued behind a successful request', async () => {
+    execute.mockResolvedValueOnce({ ...detail, isStale: true });
+    await mount();
+    let finish!: (value: typeof detail) => void;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        }),
+    );
+    await act(async () => {
+      controller.retryUpdates();
+    });
+    await act(async () => {
+      await controller.retryUpdates();
+      await controller.retryUpdates();
+    });
+    await act(async () => finish(detail));
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+  it('coalesces queued updates into one read when the active detail remains stale', async () => {
+    execute.mockResolvedValueOnce({ ...detail, isStale: true });
+    await mount();
+    let finish!: (value: typeof detail) => void;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        }),
+    );
+    await act(async () => {
+      controller.retryUpdates();
+    });
+    await act(async () => {
+      await controller.retryUpdates();
+      await controller.retryUpdates();
+    });
+    await act(async () => finish({ ...detail, isStale: true }));
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(controller.state).toMatchObject({ status: 'ready', isStale: false });
+  });
+  it.each([
+    ['all', 'updates'],
+    ['updates', 'all'],
+  ])(
+    'keeps full refresh precedence for queued %s then %s',
+    async (first, second) => {
+      await mount();
+      let finish!: (value: typeof detail) => void;
+      execute.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finish = resolve;
+          }),
+      );
+      await act(async () => {
+        controller.refresh();
+      });
+      for (const mode of [first, second]) {
+        await act(async () => {
+          await (mode === 'all'
+            ? controller.refresh()
+            : controller.retryUpdates());
+        });
+      }
+      await act(async () => finish(detail));
+      expect(execute).toHaveBeenCalledTimes(3);
+    },
+  );
   it('loads the requested identifier and passes ready data', async () => {
     await mount(25);
     expect(execute).toHaveBeenCalledWith(25);

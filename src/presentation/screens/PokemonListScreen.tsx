@@ -39,6 +39,7 @@ export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
     loadNextPage,
     retryNextPage,
     refresh,
+    retryUpdates,
     refreshing,
     refreshError,
     recoveryExhausted,
@@ -127,7 +128,7 @@ export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
             </Text>
           )}
           {(recoveryExhausted || refreshError !== null) && (
-            <RetryButton label="Retry updates" onPress={refresh} />
+            <RetryButton label="Retry updates" onPress={retryUpdates} />
           )}
         </View>
       }

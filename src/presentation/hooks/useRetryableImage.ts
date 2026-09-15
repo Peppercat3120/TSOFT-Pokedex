@@ -26,19 +26,20 @@ export function useRetryableImage(
     serial: 0,
   });
   let current = attempt;
-  if (
-    attempt.identity !== identity ||
-    (attempt.generation !== generation &&
-      attempt.index >= urls.length &&
-      urls.length > 0)
-  ) {
-    current = {
-      identity,
-      generation,
-      index: 0,
-      loaded: false,
-      serial: attempt.serial + 1,
-    };
+  if (attempt.identity !== identity || attempt.generation !== generation) {
+    const restart =
+      attempt.identity !== identity ||
+      (attempt.index >= urls.length && urls.length > 0);
+    current = restart
+      ? {
+          identity,
+          generation,
+          index: 0,
+          loaded: false,
+          serial: attempt.serial + 1,
+        }
+      : { ...attempt, generation };
+    // Consume busy generations without changing the native attempt's identity.
     setAttempt(current);
   }
   const latest = useRef(current);
@@ -53,12 +54,19 @@ export function useRetryableImage(
   }, [failureKey, failed, current.loaded, report]);
   useEffect(() => () => report?.(failureKey, false), [failureKey, report]);
   const update = (loaded: boolean) => {
-    if (!mounted.current || latest.current !== current) {
+    const active = latest.current;
+    if (
+      !mounted.current ||
+      active.identity !== current.identity ||
+      active.serial !== current.serial ||
+      active.index !== current.index ||
+      active.loaded !== current.loaded
+    ) {
       return;
     }
     const next = loaded
-      ? { ...current, loaded: true }
-      : { ...current, index: current.index + 1, loaded: false };
+      ? { ...active, loaded: true }
+      : { ...active, index: active.index + 1, loaded: false };
     latest.current = next;
     setAttempt(next);
   };

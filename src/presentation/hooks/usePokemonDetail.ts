@@ -10,6 +10,8 @@ import { mapPokemonError } from '../errors/mapPokemonError';
 import { usePokemonDetailUseCase } from '../context/PokemonDetailContext';
 export type { PokemonDetailState } from './pokemonDetailState';
 
+type ManualRefreshMode = 'all' | 'updates';
+
 export function usePokemonDetail(pokemonId: number, focused = true) {
   const useCase = usePokemonDetailUseCase();
   const [model, dispatch] = useReducer(
@@ -21,10 +23,10 @@ export function usePokemonDetail(pokemonId: number, focused = true) {
   const mounted = useRef(false);
   const generation = useRef(0);
   const inFlight = useRef(false);
-  const queuedRefresh = useRef(false);
-  const refreshAction = useRef<() => Promise<RecoveryOutcome>>(
-    async () => 'busy',
-  );
+  const queuedRefresh = useRef<ManualRefreshMode | null>(null);
+  const refreshAction = useRef<
+    (mode: ManualRefreshMode) => Promise<RecoveryOutcome>
+  >(async () => 'busy');
   const send = useCallback((action: PokemonDetailAction) => {
     current.current = pokemonDetailReducer(current.current, action);
     dispatch(action);
@@ -58,8 +60,9 @@ export function usePokemonDetail(pokemonId: number, focused = true) {
           if (mounted.current) {
             send({ type: 'finish' });
             if (queuedRefresh.current) {
-              queuedRefresh.current = false;
-              await refreshAction.current();
+              const mode = queuedRefresh.current;
+              queuedRefresh.current = null;
+              await refreshAction.current(mode);
             }
           }
         }
@@ -70,14 +73,14 @@ export function usePokemonDetail(pokemonId: number, focused = true) {
   );
   useEffect(() => {
     mounted.current = true;
-    queuedRefresh.current = false;
+    queuedRefresh.current = null;
     send({ type: 'reset', id: pokemonId });
     load();
     return () => {
       mounted.current = false;
       generation.current += 1;
       inFlight.current = false;
-      queuedRefresh.current = false;
+      queuedRefresh.current = null;
     };
   }, [load, pokemonId, send]);
   const recoverAutomatically = useCallback(() => load(true), [load]);
@@ -87,16 +90,41 @@ export function usePokemonDetail(pokemonId: number, focused = true) {
     onRecover: recoverAutomatically,
   });
   const { restartRecovery, retryImages } = recovery;
-  refreshAction.current = () => load(true);
+  const readUpdates = useCallback(
+    async (mode: ManualRefreshMode): Promise<RecoveryOutcome> => {
+      if (!mounted.current) {
+        return 'busy';
+      }
+      if (inFlight.current) {
+        queuedRefresh.current = queuedRefresh.current === 'all' ? 'all' : mode;
+        return 'busy';
+      }
+      const latest = current.current;
+      if (
+        mode === 'updates' &&
+        !(
+          latest.state.status === 'ready' &&
+          (latest.state.isStale || latest.refreshError !== null)
+        ) &&
+        !(latest.state.status === 'error' && latest.state.canRetry)
+      ) {
+        return 'attempted';
+      }
+      return load(true);
+    },
+    [load],
+  );
+  refreshAction.current = readUpdates;
   const refresh = useCallback(async (): Promise<void> => {
     restartRecovery();
     retryImages();
-    if (mounted.current && inFlight.current) {
-      queuedRefresh.current = true;
-      return;
-    }
-    await load(true);
-  }, [load, restartRecovery, retryImages]);
+    await readUpdates('all');
+  }, [readUpdates, restartRecovery, retryImages]);
+  const retryUpdates = useCallback(async (): Promise<void> => {
+    restartRecovery();
+    retryImages();
+    await readUpdates('updates');
+  }, [readUpdates, restartRecovery, retryImages]);
   const retry = useCallback(() => {
     const latest = current.current;
     if (
@@ -113,6 +141,7 @@ export function usePokemonDetail(pokemonId: number, focused = true) {
       : { status: 'loading' as const },
     retry,
     refresh,
+    retryUpdates,
     refreshing: model.refreshing,
     refreshError: model.refreshError,
     recoveryExhausted: recovery.recoveryExhausted,

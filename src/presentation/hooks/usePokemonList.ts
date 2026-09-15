@@ -17,7 +17,8 @@ import { mapPokemonError } from '../errors/mapPokemonError';
 import { usePokemonPageUseCase } from '../context/PokemonListContext';
 export type { PokemonListState } from './pokemonListState';
 
-type RefreshMode = 'automatic' | 'stale' | 'all';
+type ManualRefreshMode = 'all' | 'updates';
+type RefreshMode = 'automatic' | ManualRefreshMode;
 
 export function usePokemonList(focused = true) {
   const useCase = usePokemonPageUseCase();
@@ -28,10 +29,10 @@ export function usePokemonList(focused = true) {
   const mounted = useRef(false);
   const generation = useRef(0);
   const inFlight = useRef(false);
-  const queuedRefresh = useRef(false);
-  const refreshAction = useRef<() => Promise<RecoveryOutcome>>(
-    async () => 'busy',
-  );
+  const queuedRefresh = useRef<ManualRefreshMode | null>(null);
+  const refreshAction = useRef<
+    (mode: ManualRefreshMode) => Promise<RecoveryOutcome>
+  >(async () => 'busy');
   const send = useCallback((action: PokemonListAction) => {
     // Async operations need the latest transition before React commits a render.
     current.current = pokemonListReducer(current.current, action);
@@ -100,8 +101,9 @@ export function usePokemonList(focused = true) {
         if (token === generation.current) {
           inFlight.current = false;
           if (mounted.current && queuedRefresh.current) {
-            queuedRefresh.current = false;
-            await refreshAction.current();
+            const mode = queuedRefresh.current;
+            queuedRefresh.current = null;
+            await refreshAction.current(mode);
           }
         }
       }
@@ -112,22 +114,23 @@ export function usePokemonList(focused = true) {
 
   useEffect(() => {
     mounted.current = true;
-    queuedRefresh.current = false;
+    queuedRefresh.current = null;
     send({ type: 'reset' });
     load(true);
     return () => {
       mounted.current = false;
       generation.current += 1;
       inFlight.current = false;
-      queuedRefresh.current = false;
+      queuedRefresh.current = null;
     };
   }, [load, send]);
 
   const recoverData = useCallback(
     async (mode: RefreshMode = 'automatic'): Promise<RecoveryOutcome> => {
       if (!mounted.current || inFlight.current) {
-        if (mounted.current && mode === 'all') {
-          queuedRefresh.current = true;
+        if (mounted.current && mode !== 'automatic') {
+          queuedRefresh.current =
+            queuedRefresh.current === 'all' ? 'all' : mode;
         }
         return 'busy';
       }
@@ -138,21 +141,29 @@ export function usePokemonList(focused = true) {
       if (previous.status !== 'loaded') {
         if (
           previous.initialError?.canRetry &&
-          (mode === 'all' || previous.requestAuto)
+          (mode !== 'automatic' || previous.requestAuto)
         ) {
           return load(true, true);
         }
+        return 'attempted';
+      }
+      const targets = pagesToRefresh(
+        previous.pages,
+        mode === 'all',
+        mode === 'updates',
+      );
+      const retryCursor =
+        previous.loadMore.status === 'error' &&
+        previous.loadMore.canRetry &&
+        (mode !== 'automatic' || previous.requestAuto);
+      if (targets.length === 0 && !retryCursor) {
         return 'attempted';
       }
       const token = generation.current;
       inFlight.current = true;
       send({ type: 'refresh-start' });
       try {
-        for (const page of pagesToRefresh(
-          previous.pages,
-          mode === 'all',
-          mode === 'stale',
-        )) {
+        for (const page of targets) {
           if (!visible(token) || !canRecover()) {
             break;
           }
@@ -193,8 +204,9 @@ export function usePokemonList(focused = true) {
         await load(false, true);
       }
       if (visible(token) && queuedRefresh.current) {
-        queuedRefresh.current = false;
-        await refreshAction.current();
+        const queued = queuedRefresh.current;
+        queuedRefresh.current = null;
+        await refreshAction.current(queued);
       }
       return 'attempted';
     },
@@ -207,11 +219,16 @@ export function usePokemonList(focused = true) {
     onRecover: recoverData,
   });
   const { restartRecovery, retryImages } = recovery;
-  refreshAction.current = () => recoverData('all');
+  refreshAction.current = mode => recoverData(mode);
   const refresh = useCallback(async (): Promise<void> => {
     restartRecovery();
     retryImages();
     await recoverData('all');
+  }, [restartRecovery, retryImages, recoverData]);
+  const retryUpdates = useCallback(async (): Promise<void> => {
+    restartRecovery();
+    retryImages();
+    await recoverData('updates');
   }, [restartRecovery, retryImages, recoverData]);
   const retryInitial = useCallback(() => {
     const latest = current.current;
@@ -234,7 +251,7 @@ export function usePokemonList(focused = true) {
     ) {
       restartRecovery();
       retryImages();
-      recoverData('stale');
+      recoverData('updates');
     }
   }, [recoverData, restartRecovery, retryImages]);
   const snapshot = useMemo(
@@ -264,6 +281,7 @@ export function usePokemonList(focused = true) {
     loadNextPage,
     retryNextPage,
     refresh,
+    retryUpdates,
     refreshing: model.refreshing,
     refreshError: model.refreshError,
     recoveryExhausted: recovery.recoveryExhausted,

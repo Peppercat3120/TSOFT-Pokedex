@@ -31,8 +31,7 @@ export function useAutomaticRecovery({
   );
   const { retryImages } = images;
   const recoverImages = useCallback(async (): Promise<RecoveryOutcome> => {
-    retryImages();
-    return 'attempted';
+    return retryImages();
   }, [retryImages]);
   const { restart: restartImage, exhausted: imageExhausted } =
     useBoundedRecovery(images.pending, lifecycle, recoverImages);

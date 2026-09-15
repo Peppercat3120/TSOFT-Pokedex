@@ -98,7 +98,7 @@ describe('bounded recovery', () => {
     expect(AppState.addEventListener).toHaveBeenCalledTimes(1);
     await advance(2000);
     expect(recover).toHaveBeenCalledTimes(2);
-    expect(controller.imageRetryGeneration).toBe(2);
+    expect(controller.imageRetryGeneration).toBe(1);
   });
   it('does not consume a round when the controller is busy', async () => {
     await mount();
@@ -117,6 +117,7 @@ describe('bounded recovery', () => {
     await act(async () => controller.reportImageFailure('image', true));
     for (const delay of [2000, 4000, 8000, 16000, 30000]) {
       await advance(delay);
+      await act(async () => controller.reportImageFailure('image', true));
     }
     expect(controller.imageRetryGeneration).toBe(5);
     expect(recover).toHaveBeenCalledTimes(5);
@@ -136,7 +137,7 @@ describe('bounded recovery', () => {
     expect(controller.imageRetryGeneration).toBe(1);
     await advance(4000);
     expect(recover).toHaveBeenCalledTimes(1);
-    expect(controller.imageRetryGeneration).toBe(2);
+    expect(controller.imageRetryGeneration).toBe(1);
     await act(async () => finish('attempted'));
   });
   it('keeps separate mounted failures pending when one is disposed', async () => {

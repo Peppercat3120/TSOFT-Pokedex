@@ -24,6 +24,7 @@ export function PokemonDetailScreen({
     state,
     retry,
     refresh,
+    retryUpdates,
     refreshing,
     refreshError,
     recoveryExhausted,
@@ -89,7 +90,7 @@ export function PokemonDetailScreen({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Retry updates"
-                  onPress={refresh}
+                  onPress={retryUpdates}
                   style={styles.button}
                 >
                   <Text style={styles.buttonText}>Retry updates</Text>

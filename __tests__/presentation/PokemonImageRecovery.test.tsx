@@ -100,7 +100,9 @@ describe('image recovery', () => {
     expect(recovery.pending).toBe(true);
     await act(async () => renderer.update(<Harness first={false} />));
     expect(recovery.pending).toBe(true);
-    await act(async () => recovery.retryImages());
+    await act(async () => {
+      recovery.retryImages();
+    });
     expect(renderer.root.findAllByType(Image)).toHaveLength(1);
     expect(recovery.pending).toBe(true);
     await act(async () => renderer.root.findByType(Image).props.onLoad());

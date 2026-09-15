@@ -167,6 +167,7 @@ describe('usePokemonList', () => {
         await act(async () => {
           jest.advanceTimersByTime(delay);
         });
+        await act(async () => controller.reportImageFailure('image', true));
       }
       expect(execute).toHaveBeenCalledTimes(2);
       expect(controller.recoveryExhausted).toBe(true);
@@ -191,6 +192,115 @@ describe('usePokemonList', () => {
       [{ offset: 20, limit: 20 }, { policy: 'network-first' }],
     ]);
   });
+  it('retries only images when fresh list data has no pending updates', async () => {
+    await mount();
+    await act(async () => controller.loadNextPage());
+    await act(async () => controller.reportImageFailure('image', true));
+    await act(async () => {
+      await controller.retryUpdates();
+    });
+    expect(controller.imageRetryGeneration).toBe(1);
+    expect(execute).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await controller.retryUpdates();
+    });
+    expect(controller.imageRetryGeneration).toBe(1);
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+  it('targets stale pages and retries a failed cursor without reloading fresh pages', async () => {
+    execute
+      .mockResolvedValueOnce(result(firstPageFixture))
+      .mockResolvedValueOnce(result(secondPageFixture, true));
+    await mount();
+    await act(async () => controller.loadNextPage());
+    execute.mockRejectedValueOnce(new HttpError(429));
+    await act(async () => controller.loadNextPage());
+    execute
+      .mockResolvedValueOnce(result(secondPageFixture))
+      .mockResolvedValueOnce(result(finalPageFixture));
+    await act(async () => {
+      await controller.retryUpdates();
+    });
+    expect(execute.mock.calls.slice(3)).toEqual([
+      [{ offset: 20, limit: 20 }, { policy: 'network-first' }],
+      [{ offset: 40, limit: 20 }, { policy: 'network-first' }],
+    ]);
+    expect(ready().hasStaleData).toBe(false);
+  });
+  it('drops redundant queued updates when an active refresh succeeds', async () => {
+    execute.mockResolvedValueOnce(result(firstPageFixture, true));
+    await mount();
+    let finish!: (value: RepositoryResult<PokemonPage>) => void;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        }),
+    );
+    await act(async () => {
+      controller.retryUpdates();
+    });
+    await act(async () => {
+      await controller.retryUpdates();
+      await controller.retryUpdates();
+    });
+    await act(async () => finish(result(firstPageFixture)));
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(ready().hasStaleData).toBe(false);
+  });
+  it('coalesces queued updates into one read when the active refresh stays stale', async () => {
+    execute.mockResolvedValueOnce(result(firstPageFixture, true));
+    await mount();
+    let finish!: (value: RepositoryResult<PokemonPage>) => void;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        }),
+    );
+    await act(async () => {
+      controller.retryUpdates();
+    });
+    await act(async () => {
+      await controller.retryUpdates();
+      await controller.retryUpdates();
+    });
+    await act(async () => finish(result(firstPageFixture, true)));
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(ready().hasStaleData).toBe(false);
+  });
+  it.each([
+    ['all', 'updates'],
+    ['updates', 'all'],
+  ])(
+    'prioritizes full refresh when queued in order %s then %s',
+    async (first, second) => {
+      await mount();
+      let finish!: (value: RepositoryResult<PokemonPage>) => void;
+      execute.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finish = resolve;
+          }),
+      );
+      await act(async () => controller.loadNextPage());
+      for (const mode of [first, second]) {
+        await act(async () => {
+          await (mode === 'all'
+            ? controller.refresh()
+            : controller.retryUpdates());
+        });
+      }
+      execute
+        .mockResolvedValueOnce(result(firstPageFixture))
+        .mockResolvedValueOnce(result(secondPageFixture));
+      await act(async () => finish(result(secondPageFixture)));
+      expect(execute.mock.calls.slice(2)).toEqual([
+        [{ offset: 0, limit: 20 }, { policy: 'network-first' }],
+        [{ offset: 20, limit: 20 }, { policy: 'network-first' }],
+      ]);
+    },
+  );
   it.each(['empty', 'duplicate'])(
     'keeps a %s page stopped through refresh',
     async kind => {
