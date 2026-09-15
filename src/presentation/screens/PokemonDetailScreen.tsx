@@ -1,4 +1,12 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
+import {
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PokemonProfile } from '../components/PokemonProfile';
 import { PokemonDetailLoadingSkeleton } from '../components/LoadingSkeletons';
@@ -9,7 +17,17 @@ export function PokemonDetailScreen({
   route,
   navigation,
 }: PokemonDetailScreenProps) {
-  const { state, retry } = usePokemonDetail(route.params.pokemonId);
+  const focused = useIsFocused();
+  const {
+    state,
+    retry,
+    refresh,
+    refreshing,
+    refreshError,
+    recoveryExhausted,
+    imageRetryGeneration,
+    reportImageFailure,
+  } = usePokemonDetail(route.params.pokemonId, focused);
   const insets = useSafeAreaInsets();
   if (state.status === 'loading') {
     return (
@@ -25,11 +43,35 @@ export function PokemonDetailScreen({
   if (state.status === 'ready') {
     return (
       <ScrollView
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} />
+        }
         testID="pokemon-detail-scroll"
         style={styles.screen}
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) }}
       >
-        <PokemonProfile pokemon={state.pokemon} isStale={state.isStale} />
+        {refreshing && <Text style={styles.message}>Refreshing Pokémon…</Text>}
+        {refreshError && (
+          <Text accessibilityRole="alert" style={styles.message}>
+            {refreshError}
+          </Text>
+        )}
+        {(recoveryExhausted || refreshError !== null) && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry updates"
+            onPress={refresh}
+            style={styles.button}
+          >
+            <Text style={styles.buttonText}>Retry updates</Text>
+          </Pressable>
+        )}
+        <PokemonProfile
+          pokemon={state.pokemon}
+          isStale={state.isStale}
+          imageRetryGeneration={imageRetryGeneration}
+          reportImageFailure={reportImageFailure}
+        />
       </ScrollView>
     );
   }

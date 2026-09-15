@@ -1,3 +1,4 @@
+import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useRef } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ListRenderItemInfo } from 'react-native';
@@ -31,7 +32,19 @@ function RetryButton({
 }
 
 export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
-  const { state, retryInitial, loadNextPage, retryNextPage } = usePokemonList();
+  const focused = useIsFocused();
+  const {
+    state,
+    retryInitial,
+    loadNextPage,
+    retryNextPage,
+    refresh,
+    refreshing,
+    refreshError,
+    recoveryExhausted,
+    imageRetryGeneration,
+    reportImageFailure,
+  } = usePokemonList(focused);
   const scrollArmed = useRef(false);
   const insets = useSafeAreaInsets();
   const selectPokemon = useCallback(
@@ -42,9 +55,14 @@ export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
   );
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<PokemonSummary>) => (
-      <PokemonRow pokemon={item} onSelect={selectPokemon} />
+      <PokemonRow
+        pokemon={item}
+        onSelect={selectPokemon}
+        imageRetryGeneration={imageRetryGeneration}
+        reportImageFailure={reportImageFailure}
+      />
     ),
-    [selectPokemon],
+    [selectPokemon, imageRetryGeneration, reportImageFailure],
   );
 
   if (state.status !== 'ready') {
@@ -73,6 +91,9 @@ export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
       style={styles.list}
       contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) }}
       data={state.items}
+      extraData={imageRetryGeneration}
+      refreshing={refreshing}
+      onRefresh={refresh}
       keyExtractor={item => String(item.id)}
       renderItem={renderItem}
       onEndReachedThreshold={0.5}
@@ -91,11 +112,24 @@ export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
         }
       }}
       ListHeaderComponent={
-        state.hasStaleData ? (
-          <Text accessibilityRole="alert" style={styles.banner}>
-            Showing saved data; updates are unavailable.
-          </Text>
-        ) : undefined
+        <View>
+          {state.hasStaleData && (
+            <Text accessibilityRole="alert" style={styles.banner}>
+              Showing saved data; updates are unavailable.
+            </Text>
+          )}
+          {refreshing && (
+            <Text style={styles.message}>Refreshing Pokémon…</Text>
+          )}
+          {refreshError && (
+            <Text accessibilityRole="alert" style={styles.message}>
+              {refreshError}
+            </Text>
+          )}
+          {(recoveryExhausted || refreshError !== null) && (
+            <RetryButton label="Retry updates" onPress={refresh} />
+          )}
+        </View>
       }
       ListFooterComponent={
         <View style={styles.footer}>

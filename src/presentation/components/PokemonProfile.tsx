@@ -1,3 +1,4 @@
+import type { ImageFailureReporter } from '../hooks/useRetryableImage';
 import { StyleSheet, Text, View } from 'react-native';
 import type { PropsWithChildren } from 'react';
 import type { PokemonDetail } from '../../domain/entities/Pokemon';
@@ -56,9 +57,13 @@ function Attribute({
 export function PokemonProfile({
   pokemon,
   isStale,
+  imageRetryGeneration = 0,
+  reportImageFailure,
 }: {
   readonly pokemon: PokemonDetail;
   readonly isStale: boolean;
+  readonly imageRetryGeneration?: number;
+  readonly reportImageFailure?: ImageFailureReporter;
 }) {
   const types = [...pokemon.types].sort((a, b) => a.slot - b.slot);
   const abilities = [...pokemon.abilities].sort((a, b) => a.slot - b.slot);
@@ -83,6 +88,8 @@ export function PokemonProfile({
         #{String(pokemon.id).padStart(3, '0')}
       </Text>
       <PokemonArtwork
+        imageRetryGeneration={imageRetryGeneration}
+        reportImageFailure={reportImageFailure}
         key={`${pokemon.id}:${pokemon.sprites.officialArtwork.frontDefault}:${pokemon.sprites.frontDefault}`}
         artworkUrl={pokemon.sprites.officialArtwork.frontDefault}
         spriteUrl={pokemon.sprites.frontDefault}

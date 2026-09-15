@@ -3,10 +3,11 @@ import type {
   PokemonPage,
   PokemonPageRequest,
 } from '../../domain/entities/Pokemon';
-import {HttpError, NetworkError} from '../../domain/errors/PokemonErrors';
+import { HttpError, NetworkError } from '../../domain/errors/PokemonErrors';
 import type {
   PokemonRepository,
   RepositoryResult,
+  RepositoryReadOptions,
 } from '../../domain/repositories/PokemonRepository';
 import {
   normalizePageRequest,
@@ -20,7 +21,7 @@ import type {
   CacheEntry,
   PokemonLocalDataSource,
 } from '../datasources/PokemonLocalDataSource';
-import type {PokemonRemoteDataSource} from '../datasources/PokemonRemoteDataSource';
+import type { PokemonRemoteDataSource } from '../datasources/PokemonRemoteDataSource';
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -41,28 +42,39 @@ export class CachedPokemonRepository implements PokemonRepository {
 
   getPokemonPage(
     request: Partial<PokemonPageRequest> = {},
+    options?: RepositoryReadOptions,
   ): Promise<RepositoryResult<PokemonPage>> {
-    const {offset, limit} = normalizePageRequest(request);
-    return this.load({
-      readCache: () => this.local.getPokemonPage(offset, limit),
-      fetchRemote: () => this.remote.getPokemonPage(offset, limit),
-      writeCache: entry => this.local.setPokemonPage(offset, limit, entry),
-      map: mapPokemonListDto,
-    });
+    const { offset, limit } = normalizePageRequest(request);
+    return this.load(
+      {
+        readCache: () => this.local.getPokemonPage(offset, limit),
+        fetchRemote: () => this.remote.getPokemonPage(offset, limit),
+        writeCache: entry => this.local.setPokemonPage(offset, limit, entry),
+        map: mapPokemonListDto,
+      },
+      options,
+    );
   }
 
-  getPokemonById(id: number): Promise<RepositoryResult<PokemonDetail>> {
+  getPokemonById(
+    id: number,
+    options?: RepositoryReadOptions,
+  ): Promise<RepositoryResult<PokemonDetail>> {
     const validId = validatePokemonId(id);
-    return this.load({
-      readCache: () => this.local.getPokemonById(validId),
-      fetchRemote: () => this.remote.getPokemonById(validId),
-      writeCache: entry => this.local.setPokemonById(validId, entry),
-      map: mapPokemonDetailDto,
-    });
+    return this.load(
+      {
+        readCache: () => this.local.getPokemonById(validId),
+        fetchRemote: () => this.remote.getPokemonById(validId),
+        writeCache: entry => this.local.setPokemonById(validId, entry),
+        map: mapPokemonDetailDto,
+      },
+      options,
+    );
   }
 
   private async load<TDto, TEntity>(
     operations: LoadOperations<TDto, TEntity>,
+    options?: RepositoryReadOptions,
   ): Promise<RepositoryResult<TEntity>> {
     const cached = await operations.readCache();
     let cachedData: TEntity | null = null;
@@ -76,6 +88,7 @@ export class CachedPokemonRepository implements PokemonRepository {
     }
 
     if (
+      options?.policy !== 'network-first' &&
       cached !== null &&
       cachedData !== null &&
       this.now() - cached.cachedAt < this.ttlMs
@@ -93,11 +106,11 @@ export class CachedPokemonRepository implements PokemonRepository {
       const data = operations.map(dto);
       const cachedAt = this.now();
       try {
-        await operations.writeCache({cachedAt, data: dto});
+        await operations.writeCache({ cachedAt, data: dto });
       } catch {
         // Caching is best-effort; valid remote data must still be returned.
       }
-      return {data, source: 'remote', isStale: false, cachedAt};
+      return { data, source: 'remote', isStale: false, cachedAt };
     } catch (error) {
       if (
         cached !== null &&

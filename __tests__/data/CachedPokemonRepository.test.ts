@@ -49,6 +49,60 @@ function emptyLocal() {
 }
 
 describe('CachedPokemonRepository', () => {
+  it('bypasses fresh list and detail cache for network-first reads and writes new data', async () => {
+    const remote = emptyRemote();
+    const local = emptyLocal();
+    local.getPokemonPage.mockResolvedValue({
+      cachedAt: NOW - 1,
+      data: pokemonListFixture,
+    });
+    local.getPokemonById.mockResolvedValue({
+      cachedAt: NOW - 1,
+      data: pokemonDetailFixture,
+    });
+    const repository = new CachedPokemonRepository(remote, local, () => NOW);
+    expect(
+      (await repository.getPokemonPage({}, { policy: 'network-first' })).source,
+    ).toBe('remote');
+    expect(
+      (await repository.getPokemonById(1, { policy: 'network-first' })).source,
+    ).toBe('remote');
+    expect(local.setPokemonPage).toHaveBeenCalled();
+    expect(local.setPokemonById).toHaveBeenCalled();
+  });
+  it.each([new NetworkError('offline'), new HttpError(503)])(
+    'marks fresh fallback stale after failed refresh: %s',
+    async error => {
+      const remote = emptyRemote();
+      const local = emptyLocal();
+      local.getPokemonPage.mockResolvedValue({
+        cachedAt: NOW - 1,
+        data: pokemonListFixture,
+      });
+      remote.getPokemonPage.mockRejectedValue(error);
+      const repository = new CachedPokemonRepository(remote, local, () => NOW);
+      expect(
+        await repository.getPokemonPage({}, { policy: 'network-first' }),
+      ).toMatchObject({ source: 'cache', isStale: true, cachedAt: NOW - 1 });
+      expect(local.setPokemonPage).not.toHaveBeenCalled();
+    },
+  );
+  it.each([new HttpError(404), new InvalidPayloadError('invalid')])(
+    'does not hide refresh errors behind fresh cache: %s',
+    async error => {
+      const remote = emptyRemote();
+      const local = emptyLocal();
+      local.getPokemonById.mockResolvedValue({
+        cachedAt: NOW - 1,
+        data: pokemonDetailFixture,
+      });
+      remote.getPokemonById.mockRejectedValue(error);
+      const repository = new CachedPokemonRepository(remote, local, () => NOW);
+      await expect(
+        repository.getPokemonById(1, { policy: 'network-first' }),
+      ).rejects.toBe(error);
+    },
+  );
   it('uses fresh detail cache without network and returns remote detail when writes fail', async () => {
     const remote = emptyRemote();
     const local = emptyLocal();
@@ -60,7 +114,11 @@ describe('CachedPokemonRepository', () => {
     expect((await repository.getPokemonById(1)).source).toBe('cache');
     expect(remote.getPokemonById).not.toHaveBeenCalled();
     local.setPokemonById.mockRejectedValueOnce(new Error('disk full'));
-    remote.getPokemonById.mockResolvedValueOnce({...pokemonDetailFixture, id: 2, name: 'ivysaur'});
+    remote.getPokemonById.mockResolvedValueOnce({
+      ...pokemonDetailFixture,
+      id: 2,
+      name: 'ivysaur',
+    });
     expect((await repository.getPokemonById(2)).source).toBe('remote');
     expect(local.getPokemonById.mock.calls).toEqual([[1], [2]]);
   });

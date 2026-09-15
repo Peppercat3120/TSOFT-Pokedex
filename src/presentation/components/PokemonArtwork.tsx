@@ -1,19 +1,31 @@
-import { useState } from 'react';
+import { useRetryableImage } from '../hooks/useRetryableImage';
+import type { ImageFailureReporter } from '../hooks/useRetryableImage';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 
 interface Props {
+  readonly imageRetryGeneration?: number;
+  readonly reportImageFailure?: ImageFailureReporter;
   readonly artworkUrl: string | null;
   readonly spriteUrl: string | null;
 }
 
-export function PokemonArtwork({ artworkUrl, spriteUrl }: Props) {
+export function PokemonArtwork({
+  artworkUrl,
+  spriteUrl,
+  imageRetryGeneration = 0,
+  reportImageFailure,
+}: Props) {
   const urls = [
     ...new Set(
       [artworkUrl, spriteUrl].filter((url): url is string => url !== null),
     ),
   ];
-  const [image, setImage] = useState({ index: 0, loaded: false });
-  const url = urls[image.index];
+  const image = useRetryableImage(
+    urls,
+    imageRetryGeneration,
+    reportImageFailure,
+  );
+  const url = image.url;
   return (
     <View
       style={styles.container}
@@ -25,26 +37,14 @@ export function PokemonArtwork({ artworkUrl, spriteUrl }: Props) {
       ) : (
         <>
           <Image
-            key={url}
+            key={image.key}
             testID="pokemon-detail-artwork"
             accessible={false}
             source={{ uri: url }}
             resizeMode="contain"
             style={styles.image}
-            onLoad={() =>
-              setImage(previous =>
-                previous.index === image.index
-                  ? { ...previous, loaded: true }
-                  : previous,
-              )
-            }
-            onError={() =>
-              setImage(previous =>
-                previous.index === image.index
-                  ? { index: previous.index + 1, loaded: false }
-                  : previous,
-              )
-            }
+            onLoad={image.onLoad}
+            onError={image.onError}
           />
           {!image.loaded && (
             <ActivityIndicator

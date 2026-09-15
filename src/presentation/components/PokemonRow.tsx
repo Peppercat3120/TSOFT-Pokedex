@@ -1,4 +1,6 @@
-import { memo, useState } from 'react';
+import { useRetryableImage } from '../hooks/useRetryableImage';
+import type { ImageFailureReporter } from '../hooks/useRetryableImage';
+import { memo } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -10,6 +12,8 @@ import {
 import type { PokemonSummary } from '../../domain/entities/Pokemon';
 
 interface Props {
+  readonly imageRetryGeneration?: number;
+  readonly reportImageFailure?: ImageFailureReporter;
   readonly pokemon: PokemonSummary;
   readonly onSelect: (id: number) => void;
 }
@@ -17,10 +21,16 @@ interface Props {
 export const PokemonRow = memo(function PokemonRowView({
   pokemon,
   onSelect,
+  imageRetryGeneration = 0,
+  reportImageFailure,
 }: Props) {
-  const [imageState, setImageState] = useState<'loading' | 'ready' | 'error'>(
-    'loading',
+  const image = useRetryableImage(
+    [pokemon.imageUrl],
+    imageRetryGeneration,
+    reportImageFailure,
   );
+  const imageState =
+    image.url === undefined ? 'error' : image.loaded ? 'ready' : 'loading';
   const name = pokemon.name.charAt(0).toUpperCase() + pokemon.name.slice(1);
   return (
     <Pressable
@@ -38,13 +48,14 @@ export const PokemonRow = memo(function PokemonRowView({
       >
         {imageState !== 'error' && (
           <Image
+            key={image.key}
             testID={`pokemon-image-${pokemon.id}`}
             accessible={false}
             source={{ uri: pokemon.imageUrl }}
             resizeMode="contain"
             style={styles.image}
-            onLoad={() => setImageState('ready')}
-            onError={() => setImageState('error')}
+            onLoad={image.onLoad}
+            onError={image.onError}
           />
         )}
         {imageState === 'loading' && (

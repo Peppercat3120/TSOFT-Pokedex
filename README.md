@@ -67,7 +67,7 @@ Images are not included in the list response. The mapper derives `https://raw.gi
 - The mapped `next` offset drives each subsequent request, always with `limit=20`.
 - `FlatList` requests another page near the end (`onEndReachedThreshold=0.5`), only after a user drag. One drag authorizes one request, preventing mount-time loading and automatic request chains after appending.
 - A synchronous request lock prevents duplicate requests. Pages append in order and duplicate IDs keep their first occurrence. Existing rows remain visible and usable during loading or errors.
-- A failed page retains its cursor and requires explicit footer retry; scrolling does not repeatedly retry a failing request.
+- A failed page retains its cursor. Scrolling does not repeatedly retry a failing request; bounded recovery and the footer retry can recover it.
 - Null next links, empty/duplicate-only pages, and non-advancing offsets stop pagination safely. A final page may contain fewer than 20 records.
 - `FlatList` virtualizes rendering; accumulated records remain in memory while the screen is mounted. Returning from detail retains the mounted list and scroll position.
 
@@ -93,7 +93,7 @@ The selected navigation ID drives `GET https://pokeapi.co/api/v2/pokemon/{pokemo
 
 ## Centralized error feedback
 
-A pure presentation-layer error mapper provides consistent messages and retry decisions for the initial list, pagination, and detail. Connectivity failures, HTTP 408, HTTP 429, server failures, invalid responses, and unknown failures allow explicit retry. Other HTTP 4xx errors and invalid arguments do not offer repeated requests; detail provides a back action, while list feedback advises restarting the app. Rate-limit feedback asks the user to wait; there is no automatic retry or enforced countdown. Pagination failures preserve loaded rows and explain that they remain available. Technical error details are never displayed. Domain error classes and cache fallback rules remain separate from UI wording.
+A pure presentation-layer error mapper provides consistent messages and retry decisions for the initial list, pagination, and detail. Connectivity failures, HTTP 408, HTTP 429, server failures, invalid responses, and unknown failures allow explicit retry. Other HTTP 4xx errors and invalid arguments do not offer repeated requests; detail provides a back action, while list feedback advises restarting the app. Rate-limit feedback asks the user to wait; HTTP 429 is never automatically retried and has no enforced countdown. Pagination failures preserve loaded rows and explain that they remain available. Technical error details are never displayed. Domain error classes and cache fallback rules remain separate from UI wording.
 
 ## Libraries and boundaries
 
@@ -106,6 +106,16 @@ The navigation implementation also uses these support dependencies:
 
 As discussed with the Alejandro, React Navigation and AsyncStorage are permitted because they support the explicit navigation and persistence requirements. Both navigation support dependencies follow this criterion: they provide native navigation and safe-area handling, while application architecture, state management, and business logic are implemented in the project using React tools, use cases, and repositories. There is no HTTP wrapper, third-party state manager, or UI kit.
 
-Pending work: validate full device-level Android/iOS offline behavior and accessibility, and optionally add search or deliberate cache refresh. These features do not implement moves, evolution/species descriptions, audio, shiny toggles, favorites, background page prefetching, forced refresh, or persistent image downloads.
+Pending work: validate full device-level Android/iOS offline behavior and accessibility, and optionally add search. These features do not implement moves, evolution/species descriptions, audio, shiny toggles, favorites, background page prefetching or persistent image downloads.
 
 Manual acceptance checks on both platforms: initial 20 rows; scrolling to 40 and beyond without losing position; fast-scroll request guarding; navigation/back; initial offline error; cached pages offline; failed next-page retry; image failures; narrow screens, large text, and screen readers.
+
+### Refresh and connectivity recovery
+
+Normal reads retain the 24-hour cache-first policy. Pull-to-refresh, explicit retries, and recovery use network-first reads, bypassing even fresh JSON cache. Network failures and HTTP 5xx may fall back to validated saved JSON, marked stale even if its TTL has not expired. Cache keys and persisted DTOs are unchanged.
+
+While the app is active and the screen is focused, connectivity failures, HTTP 408/5xx, stale fallback, and failed mounted images trigger up to five recovery rounds after delays of 2, 4, 8, 16, and 30 seconds. Resume/focus attempts pending recovery immediately and restarts the budget; manual retry also restarts it. Backgrounding, blurring, and unmounting cancel scheduled retries. HTTP 429, other HTTP 4xx, invalid arguments, and invalid payloads are not automatically retried. This is bounded retry, not connectivity monitoring: a reconnection after exhaustion requires resume/focus or manual retry.
+
+Loaded pages refresh in place; only pages still needing automatic recovery are refreshed before the failed pagination cursor is retried. Pull-to-refresh refreshes all loaded pages. Rows and scroll position remain available, and stale warnings derive from each page's status. An exhausted recovery budget exposes “Retry updates”.
+
+JSON and image recovery are independent. Footer retry also resets failed existing row images. Failed images restart with unchanged URLs and a new attempt identity; successful images are retained, obsolete callbacks are ignored, and unmounted failures stop contributing to recovery. Detail artwork restarts its artwork/sprite fallback chain only after exhaustion. Images remain subject to platform caching; persistent offline images are not guaranteed.

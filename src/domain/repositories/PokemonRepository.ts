@@ -11,10 +11,18 @@ export interface RepositoryResult<T> {
   readonly cachedAt: number;
 }
 
+export interface RepositoryReadOptions {
+  readonly policy: 'cache-first' | 'network-first';
+}
+
 export interface PokemonRepository {
   getPokemonPage(
     request?: Partial<PokemonPageRequest>,
+    options?: RepositoryReadOptions,
   ): Promise<RepositoryResult<PokemonPage>>;
 
-  getPokemonById(id: number): Promise<RepositoryResult<PokemonDetail>>;
+  getPokemonById(
+    id: number,
+    options?: RepositoryReadOptions,
+  ): Promise<RepositoryResult<PokemonDetail>>;
 }

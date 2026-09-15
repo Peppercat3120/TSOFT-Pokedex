@@ -5,7 +5,11 @@ import { usePokemonList } from '../../src/presentation/hooks/usePokemonList';
 import { PokemonListProvider } from '../../src/presentation/context/PokemonListContext';
 import type { PokemonPageUseCase } from '../../src/presentation/context/PokemonListContext';
 import { mapPokemonListDto } from '../../src/data/mappers/PokemonMapper';
-import { HttpError, NetworkError } from '../../src/domain/errors/PokemonErrors';
+import {
+  HttpError,
+  InvalidPayloadError,
+  NetworkError,
+} from '../../src/domain/errors/PokemonErrors';
 import type { RepositoryResult } from '../../src/domain/repositories/PokemonRepository';
 import type { PokemonPage } from '../../src/domain/entities/Pokemon';
 import type { PokemonListDto } from '../../src/data/dtos/PokemonDtos';
@@ -58,6 +62,135 @@ describe('usePokemonList', () => {
     }
   });
 
+  it('refreshes stale pages in place and clears warnings only after all pages recover', async () => {
+    execute
+      .mockResolvedValueOnce(result(firstPageFixture, true))
+      .mockResolvedValueOnce(result(secondPageFixture, true));
+    await mount();
+    await act(async () => controller.loadNextPage());
+    execute
+      .mockResolvedValueOnce(result(firstPageFixture))
+      .mockResolvedValueOnce(result(secondPageFixture, true));
+    await act(async () => {
+      await controller.refresh();
+    });
+    expect(ready().items).toHaveLength(40);
+    expect(ready().hasStaleData).toBe(true);
+    expect(ready().nextPage?.offset).toBe(40);
+    execute
+      .mockResolvedValueOnce(result(firstPageFixture))
+      .mockResolvedValueOnce(result(secondPageFixture));
+    await act(async () => {
+      await controller.refresh();
+    });
+    expect(ready().hasStaleData).toBe(false);
+    expect(ready().items).toHaveLength(40);
+  });
+  it('recovers image-only failures without a JSON request', async () => {
+    jest.useFakeTimers();
+    try {
+      await mount();
+      await act(async () => controller.reportImageFailure('image', true));
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(controller.imageRetryGeneration).toBeGreaterThan(0);
+      expect(execute).toHaveBeenCalledTimes(1);
+      await act(async () => controller.reportImageFailure('image', false));
+      await act(async () => {
+        jest.advanceTimersByTime(60000);
+      });
+      expect(execute).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  it('automatically refreshes stale pages before retrying the failed cursor', async () => {
+    jest.useFakeTimers();
+    try {
+      execute
+        .mockResolvedValueOnce(result(firstPageFixture, true))
+        .mockRejectedValueOnce(new NetworkError('offline'));
+      await mount();
+      await act(async () => controller.loadNextPage());
+      execute
+        .mockResolvedValueOnce(result(firstPageFixture))
+        .mockResolvedValueOnce(result(secondPageFixture));
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(ready().items).toHaveLength(40);
+      expect(ready().hasStaleData).toBe(false);
+      expect(execute.mock.calls.slice(2)).toEqual([
+        [{ offset: 0, limit: 20 }, { policy: 'network-first' }],
+        [{ offset: 20, limit: 20 }, { policy: 'network-first' }],
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  it('coalesces refresh requests arriving during pagination and preserves visible rows', async () => {
+    await mount();
+    let resolve!: (value: RepositoryResult<PokemonPage>) => void;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise(done => {
+          resolve = done;
+        }),
+    );
+    await act(async () => controller.loadNextPage());
+    await act(async () => {
+      await controller.refresh();
+      await controller.refresh();
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(ready().items).toHaveLength(20);
+    execute
+      .mockResolvedValueOnce(result(firstPageFixture))
+      .mockResolvedValueOnce(result(secondPageFixture));
+    await act(async () => resolve(result(secondPageFixture)));
+    expect(execute).toHaveBeenCalledTimes(4);
+    expect(ready().items).toHaveLength(40);
+  });
+  it.each([
+    new HttpError(429),
+    new HttpError(403),
+    new InvalidPayloadError('invalid'),
+  ])('does not retry a data error during image recovery: %s', async error => {
+    jest.useFakeTimers();
+    try {
+      await mount();
+      execute.mockRejectedValueOnce(error);
+      await act(async () => controller.loadNextPage());
+      await act(async () => controller.reportImageFailure('image', true));
+      for (const delay of [2000, 4000, 8000, 16000, 30000]) {
+        await act(async () => {
+          jest.advanceTimersByTime(delay);
+        });
+      }
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(controller.recoveryExhausted).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  it('footer retry refreshes stale rows before loading the failed cursor', async () => {
+    execute
+      .mockResolvedValueOnce(result(firstPageFixture, true))
+      .mockRejectedValueOnce(new HttpError(429));
+    await mount();
+    await act(async () => controller.loadNextPage());
+    execute
+      .mockResolvedValueOnce(result(firstPageFixture))
+      .mockResolvedValueOnce(result(secondPageFixture));
+    await act(async () => controller.retryNextPage());
+    expect(ready().items).toHaveLength(40);
+    expect(ready().hasStaleData).toBe(false);
+    expect(execute.mock.calls.slice(2)).toEqual([
+      [{ offset: 0, limit: 20 }, { policy: 'network-first' }],
+      [{ offset: 20, limit: 20 }, { policy: 'network-first' }],
+    ]);
+  });
   it('loads and appends 20 at a time, preserves rows, and stops on a final partial page', async () => {
     execute
       .mockResolvedValueOnce(result(firstPageFixture))
@@ -115,7 +248,10 @@ describe('usePokemonList', () => {
       controller.retryNextPage();
     });
     expect(ready().items).toHaveLength(40);
-    expect(execute.mock.calls[2]).toEqual([{ offset: 20, limit: 20 }]);
+    expect(execute.mock.calls[2]).toEqual([
+      { offset: 20, limit: 20 },
+      { policy: 'network-first' },
+    ]);
   });
 
   it.each([new NetworkError('offline'), new HttpError(503)])(

@@ -49,6 +49,56 @@ describe('usePokemonDetail', () => {
     await act(async () => renderer.unmount());
   });
 
+  it('automatically refreshes stale detail and preserves it while refreshing', async () => {
+    jest.useFakeTimers();
+    try {
+      execute.mockResolvedValueOnce({
+        ...detail,
+        source: 'cache',
+        isStale: true,
+      });
+      await mount();
+      let resolve!: (value: typeof detail) => void;
+      execute.mockImplementationOnce(
+        () =>
+          new Promise(done => {
+            resolve = done;
+          }),
+      );
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(controller.state.status).toBe('ready');
+      expect(controller.refreshing).toBe(true);
+      expect(execute).toHaveBeenLastCalledWith(1, { policy: 'network-first' });
+      await act(async () => resolve(detail));
+      expect(controller.state).toMatchObject({
+        status: 'ready',
+        isStale: false,
+      });
+      expect(controller.refreshing).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  it('keeps rate-limit feedback visible without automatic retry during image recovery', async () => {
+    jest.useFakeTimers();
+    try {
+      await mount();
+      execute.mockRejectedValueOnce(new HttpError(429));
+      await act(async () => {
+        await controller.refresh();
+      });
+      expect(controller.refreshError).toContain('Too many requests');
+      await act(async () => controller.reportImageFailure('image', true));
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(execute).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
   it('loads the requested identifier and passes ready data', async () => {
     await mount(25);
     expect(execute).toHaveBeenCalledWith(25);

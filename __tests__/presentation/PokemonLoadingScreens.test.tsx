@@ -1,3 +1,7 @@
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useIsFocused: () => true,
+}));
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { ActivityIndicator, FlatList, Text } from 'react-native';
@@ -7,8 +11,15 @@ import { PokemonDetailProvider } from '../../src/presentation/context/PokemonDet
 import type { PokemonDetailUseCase } from '../../src/presentation/context/PokemonDetailContext';
 import { PokemonListScreen } from '../../src/presentation/screens/PokemonListScreen';
 import { PokemonDetailScreen } from '../../src/presentation/screens/PokemonDetailScreen';
-import { mapPokemonListDto, mapPokemonDetailDto } from '../../src/data/mappers/PokemonMapper';
-import { firstPageFixture, secondPageFixture, pokemonDetailFixture } from '../data/fixtures';
+import {
+  mapPokemonListDto,
+  mapPokemonDetailDto,
+} from '../../src/data/mappers/PokemonMapper';
+import {
+  firstPageFixture,
+  secondPageFixture,
+  pokemonDetailFixture,
+} from '../data/fixtures';
 
 const page = (dto = firstPageFixture) => ({
   data: mapPokemonListDto(dto),
@@ -39,7 +50,10 @@ describe('Pokémon loading skeletons', () => {
     await act(async () => {
       renderer = ReactTestRenderer.create(
         <PokemonListProvider useCase={{ execute: executePage }}>
-          <PokemonListScreen navigation={{ navigate: jest.fn() } as never} route={{} as never} />
+          <PokemonListScreen
+            navigation={{ navigate: jest.fn() } as never}
+            route={{} as never}
+          />
         </PokemonListProvider>,
       );
     });
@@ -71,7 +85,10 @@ describe('Pokémon loading skeletons', () => {
     await act(async () => {
       renderer = ReactTestRenderer.create(
         <PokemonListProvider useCase={{ execute: executePage }}>
-          <PokemonListScreen navigation={{ navigate: jest.fn() } as never} route={{} as never} />
+          <PokemonListScreen
+            navigation={{ navigate: jest.fn() } as never}
+            route={{} as never}
+          />
         </PokemonListProvider>,
       );
     });
@@ -103,7 +120,9 @@ describe('Pokémon loading skeletons', () => {
   });
 
   it('replaces detail loading with a profile skeleton until the Pokémon resolves', async () => {
-    let resolve!: (value: Awaited<ReturnType<PokemonDetailUseCase['execute']>>) => void;
+    let resolve!: (
+      value: Awaited<ReturnType<PokemonDetailUseCase['execute']>>,
+    ) => void;
     executeDetail = jest.fn(
       (_id: number) =>
         new Promise(done => {
@@ -114,14 +133,22 @@ describe('Pokémon loading skeletons', () => {
       renderer = ReactTestRenderer.create(
         <PokemonDetailProvider useCase={{ execute: executeDetail }}>
           <PokemonDetailScreen
-            navigation={{ canGoBack: () => true, goBack: jest.fn(), replace: jest.fn() } as never}
+            navigation={
+              {
+                canGoBack: () => true,
+                goBack: jest.fn(),
+                replace: jest.fn(),
+              } as never
+            }
             route={{ params: { pokemonId: 1 } } as never}
           />
         </PokemonDetailProvider>,
       );
     });
     expect(
-      renderer.root.findAllByProps({ testID: 'pokemon-detail-loading-skeleton' }),
+      renderer.root.findAllByProps({
+        testID: 'pokemon-detail-loading-skeleton',
+      }),
     ).not.toHaveLength(0);
     expect(renderer.root.findAllByType(ActivityIndicator)).toHaveLength(0);
     await act(async () =>
@@ -133,7 +160,9 @@ describe('Pokémon loading skeletons', () => {
       }),
     );
     expect(
-      renderer.root.findAllByProps({ testID: 'pokemon-detail-loading-skeleton' }),
+      renderer.root.findAllByProps({
+        testID: 'pokemon-detail-loading-skeleton',
+      }),
     ).toHaveLength(0);
     expect(
       renderer.root
