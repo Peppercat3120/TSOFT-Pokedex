@@ -1,8 +1,8 @@
 import { AppState } from 'react-native';
 import {
   canRecoverAutomatically,
-  useImageRecovery,
-  useRecovery,
+  useAutomaticRecovery,
+  type RecoveryReason,
 } from './useRecovery';
 import type { PokemonPage } from '../../domain/entities/Pokemon';
 import type { RepositoryResult } from '../../domain/repositories/PokemonRepository';
@@ -58,12 +58,6 @@ export function usePokemonList(focused = true) {
   const paginationAuto = useRef(false);
   const queuedRefresh = useRef(false);
   const refreshAction = useRef<() => Promise<void | boolean>>(async () => {});
-  const {
-    pending: imagesPending,
-    imageRetryGeneration,
-    reportImageFailure,
-    retryImages,
-  } = useImageRecovery();
   const stateRef = useRef(state);
   const mounted = useRef(false);
   const generation = useRef(0);
@@ -187,7 +181,7 @@ export function usePokemonList(focused = true) {
     };
   }, [load]);
 
-  const recover = useCallback(
+  const recoverData = useCallback(
     async (all = false, explicit = false) => {
       if (!mounted.current || inFlight.current) {
         if (all) {
@@ -203,7 +197,6 @@ export function usePokemonList(focused = true) {
       ) {
         return false;
       }
-      retryImages();
       const previous = stateRef.current;
       if (previous.status !== 'ready') {
         if (
@@ -317,18 +310,45 @@ export function usePokemonList(focused = true) {
       }
       if (queuedRefresh.current) {
         queuedRefresh.current = false;
-        await recover(true);
+        await recoverData(true);
       }
     },
-    [retryImages, load, publish, useCase],
+    [load, publish, useCase],
   );
-  refreshAction.current = () => recover(true);
-  const { restart: restartRecovery, exhausted: recoveryExhausted } =
-    useRecovery(autoPending || imagesPending, recover, focused);
+  const recoverAutomatically = useCallback(
+    async (reason: RecoveryReason, retryImages: () => void) => {
+      if (!mounted.current || inFlight.current) {
+        return false;
+      }
+      if (reason !== 'data') {
+        retryImages();
+      }
+      if (reason !== 'images') {
+        await recoverData();
+      }
+    },
+    [recoverData],
+  );
+  const {
+    restartRecovery,
+    recoveryExhausted,
+    imageRetryGeneration,
+    reportImageFailure,
+    retryImages,
+  } = useAutomaticRecovery({
+    dataPending: autoPending,
+    focused,
+    onRecover: recoverAutomatically,
+  });
+  refreshAction.current = async () => {
+    retryImages();
+    return recoverData(true);
+  };
   const refresh = useCallback(() => {
     restartRecovery();
-    return recover(true);
-  }, [restartRecovery, recover]);
+    retryImages();
+    return recoverData(true);
+  }, [restartRecovery, retryImages, recoverData]);
   const retryInitial = useCallback(() => {
     if (
       (stateRef.current.status === 'error' && stateRef.current.canRetry) ||
@@ -349,9 +369,10 @@ export function usePokemonList(focused = true) {
       current.loadMore.canRetry
     ) {
       restartRecovery();
-      recover(false, true);
+      retryImages();
+      recoverData(false, true);
     }
-  }, [recover, restartRecovery]);
+  }, [recoverData, restartRecovery, retryImages]);
 
   return {
     state,

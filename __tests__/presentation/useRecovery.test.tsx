@@ -2,7 +2,7 @@ import React from 'react';
 import Renderer, { act } from 'react-test-renderer';
 import { AppState } from 'react-native';
 import {
-  useRecovery,
+  useAutomaticRecovery,
   canRecoverAutomatically,
 } from '../../src/presentation/hooks/useRecovery';
 import {
@@ -13,12 +13,16 @@ import {
 
 describe('bounded recovery', () => {
   let renderer: Renderer.ReactTestRenderer;
-  let controller: ReturnType<typeof useRecovery>;
+  let controller: ReturnType<typeof useAutomaticRecovery>;
   let listener: (state: 'active' | 'background') => void;
   const remove = jest.fn();
   let recover: jest.Mock;
-  function Harness({ pending = true, focused = true }) {
-    controller = useRecovery(pending, recover, focused);
+  function Harness({ dataPending = true, focused = true }) {
+    controller = useAutomaticRecovery({
+      dataPending,
+      focused,
+      onRecover: recover,
+    });
     return null;
   }
   beforeEach(() => {
@@ -53,10 +57,11 @@ describe('bounded recovery', () => {
       await advance(delay);
     }
     expect(recover).toHaveBeenCalledTimes(5);
-    expect(controller.exhausted).toBe(true);
+    expect(recover.mock.calls[0][0]).toBe('data');
+    expect(controller.recoveryExhausted).toBe(true);
     await advance(60000);
     expect(recover).toHaveBeenCalledTimes(5);
-    await act(async () => controller.restart());
+    await act(async () => controller.restartRecovery());
     await advance(2000);
     expect(recover).toHaveBeenCalledTimes(6);
   });
@@ -70,7 +75,7 @@ describe('bounded recovery', () => {
     await act(async () => renderer.update(<Harness focused={false} />));
     await advance(60000);
     expect(recover).toHaveBeenCalledTimes(1);
-    await act(async () => renderer.update(<Harness pending={false} />));
+    await act(async () => renderer.update(<Harness dataPending={false} />));
     recover.mockClear();
     await advance(60000);
     expect(recover).not.toHaveBeenCalled();
@@ -85,7 +90,23 @@ describe('bounded recovery', () => {
     for (let index = 0; index < 7; index++) {
       await advance(2000);
     }
-    expect(controller.exhausted).toBe(false);
+    expect(controller.recoveryExhausted).toBe(false);
+  });
+  it('uses explicit image and combined recovery reasons', async () => {
+    await act(async () => {
+      renderer = Renderer.create(<Harness dataPending={false} />);
+    });
+    recover.mockClear();
+    await act(async () => controller.reportImageFailure('image', true));
+    await advance(2000);
+    expect(recover).toHaveBeenLastCalledWith('images', expect.any(Function));
+
+    await act(async () => renderer.update(<Harness dataPending />));
+    await advance(4000);
+    expect(recover).toHaveBeenLastCalledWith(
+      'data-and-images',
+      expect.any(Function),
+    );
   });
   it('limits automatic retries to connectivity, timeouts, and server errors', () => {
     for (const error of [

@@ -1,7 +1,7 @@
 import {
   canRecoverAutomatically,
-  useImageRecovery,
-  useRecovery,
+  useAutomaticRecovery,
+  type RecoveryReason,
 } from './useRecovery';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PokemonDetail } from '../../domain/entities/Pokemon';
@@ -23,12 +23,6 @@ export type PokemonDetailState =
     };
 
 export function usePokemonDetail(pokemonId: number, focused = true) {
-  const {
-    pending: imagesPending,
-    imageRetryGeneration,
-    reportImageFailure,
-    retryImages,
-  } = useImageRecovery();
   const [autoPending, setAutoPending] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -128,17 +122,31 @@ export function usePokemonDetail(pokemonId: number, focused = true) {
   }, [load]);
 
   refreshAction.current = () => load(true);
-  const recover = useCallback(async () => {
-    if (inFlight.current || !mounted.current) {
-      return false;
-    }
-    retryImages();
-    if (autoPending) {
-      await load(true);
-    }
-  }, [retryImages, autoPending, load]);
-  const { restart: restartRecovery, exhausted: recoveryExhausted } =
-    useRecovery(autoPending || imagesPending, recover, focused);
+  const recoverAutomatically = useCallback(
+    async (reason: RecoveryReason, retryImages: () => void) => {
+      if (inFlight.current || !mounted.current) {
+        return false;
+      }
+      if (reason !== 'data') {
+        retryImages();
+      }
+      if (reason !== 'images') {
+        await load(true);
+      }
+    },
+    [load],
+  );
+  const {
+    restartRecovery,
+    recoveryExhausted,
+    imageRetryGeneration,
+    reportImageFailure,
+    retryImages,
+  } = useAutomaticRecovery({
+    dataPending: autoPending,
+    focused,
+    onRecover: recoverAutomatically,
+  });
   const refresh = useCallback(() => {
     restartRecovery();
     retryImages();
