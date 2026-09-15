@@ -1,6 +1,5 @@
 import { useCallback, useRef } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
@@ -11,6 +10,10 @@ import type { ListRenderItemInfo } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { PokemonSummary } from '../../domain/entities/Pokemon';
 import { PokemonRow } from '../components/PokemonRow';
+import {
+  PokemonListFooterLoadingSkeleton,
+  PokemonListLoadingSkeleton,
+} from '../components/LoadingSkeletons';
 import { usePokemonList } from '../hooks/usePokemonList';
 import type { PokemonListScreenProps } from '../navigation/RootStackParamList';
 
@@ -52,12 +55,9 @@ export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
 
   if (state.status !== 'ready') {
     return (
-      <View style={styles.center}>
+      <View style={state.status === 'loading' ? styles.loading : styles.center}>
         {state.status === 'loading' ? (
-          <>
-            <ActivityIndicator color="#B91C1C" size="large" />
-            <Text style={styles.message}>Loading Pokémon…</Text>
-          </>
+          <PokemonListLoadingSkeleton />
         ) : (
           <>
             <Text accessibilityRole="alert" style={styles.message}>
@@ -103,10 +103,7 @@ export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
       ListFooterComponent={
         <View style={styles.footer}>
           {state.loadMore.status === 'loading' ? (
-            <>
-              <ActivityIndicator color="#B91C1C" />
-              <Text style={styles.message}>Loading more Pokémon…</Text>
-            </>
+            <PokemonListFooterLoadingSkeleton />
           ) : state.loadMore.status === 'error' ? (
             <>
               <Text accessibilityRole="alert" style={styles.message}>
@@ -131,6 +128,7 @@ export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
 
 const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: '#FFFFFF' },
+  loading: { flex: 1, backgroundColor: '#FFFFFF' },
   center: {
     flex: 1,
     alignItems: 'center',

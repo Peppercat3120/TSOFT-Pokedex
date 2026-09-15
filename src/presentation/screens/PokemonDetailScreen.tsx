@@ -1,5 +1,4 @@
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,6 +7,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PokemonProfile } from '../components/PokemonProfile';
+import { PokemonDetailLoadingSkeleton } from '../components/LoadingSkeletons';
 import { usePokemonDetail } from '../hooks/usePokemonDetail';
 import type { PokemonDetailScreenProps } from '../navigation/RootStackParamList';
 
@@ -17,6 +17,17 @@ export function PokemonDetailScreen({
 }: PokemonDetailScreenProps) {
   const { state, retry } = usePokemonDetail(route.params.pokemonId);
   const insets = useSafeAreaInsets();
+  if (state.status === 'loading') {
+    return (
+      <ScrollView
+        testID="pokemon-detail-loading-scroll"
+        style={styles.screen}
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) }}
+      >
+        <PokemonDetailLoadingSkeleton />
+      </ScrollView>
+    );
+  }
   if (state.status === 'ready') {
     return (
       <ScrollView
@@ -34,38 +45,31 @@ export function PokemonDetailScreen({
     <View
       style={[styles.center, { paddingBottom: Math.max(insets.bottom, 24) }]}
     >
-      {state.status === 'loading' ? (
-        <>
-          <ActivityIndicator size="large" color="#B91C1C" />
-          <Text style={styles.message}>Loading Pokémon…</Text>
-        </>
-      ) : (
-        <>
-          <Text accessibilityRole="alert" style={styles.message}>
-            {state.status === 'not-found'
-              ? 'Pokémon not found.'
-              : state.message}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            onPress={
-              canRetry
-                ? retry
-                : () => {
-                    if (navigation.canGoBack()) {
-                      navigation.goBack();
-                    } else {
-                      navigation.replace('PokemonList');
-                    }
+      <>
+        <Text accessibilityRole="alert" style={styles.message}>
+          {state.status === 'not-found'
+            ? 'Pokémon not found.'
+            : state.message}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          onPress={
+            canRetry
+              ? retry
+              : () => {
+                  if (navigation.canGoBack()) {
+                    navigation.goBack();
+                  } else {
+                    navigation.replace('PokemonList');
                   }
-            }
-            style={({ pressed }) => [styles.button, pressed && styles.pressed]}
-          >
-            <Text style={styles.buttonText}>{label}</Text>
-          </Pressable>
-        </>
-      )}
+                }
+          }
+          style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+        >
+          <Text style={styles.buttonText}>{label}</Text>
+        </Pressable>
+      </>
     </View>
   );
 }
