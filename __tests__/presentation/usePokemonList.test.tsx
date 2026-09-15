@@ -129,6 +129,34 @@ describe('usePokemonList', () => {
     },
   );
 
+  it('blocks retries for permanent initial failures', async () => {
+    execute.mockRejectedValueOnce(new HttpError(403));
+    await mount();
+    expect(controller.state).toMatchObject({
+      status: 'error',
+      canRetry: false,
+    });
+    await act(async () => controller.retryInitial());
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps rows and blocks all retries for permanent pagination failures', async () => {
+    await mount();
+    const items = ready().items;
+    execute.mockRejectedValueOnce(new HttpError(400));
+    await act(async () => controller.loadNextPage());
+    expect(ready().items).toBe(items);
+    expect(ready().loadMore).toMatchObject({
+      status: 'error',
+      canRetry: false,
+    });
+    await act(async () => {
+      controller.retryNextPage();
+      controller.loadNextPage();
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
   it('handles initial loading and ignores responses after unmount', async () => {
     let resolve!: (value: RepositoryResult<PokemonPage>) => void;
     execute.mockImplementationOnce(

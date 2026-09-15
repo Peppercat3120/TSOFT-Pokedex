@@ -1,16 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PokemonDetail } from '../../domain/entities/Pokemon';
-import {
-  HttpError,
-  InvalidArgumentError,
-  InvalidPayloadError,
-  NetworkError,
-} from '../../domain/errors/PokemonErrors';
+import { mapPokemonError } from '../errors/mapPokemonError';
 import { usePokemonDetailUseCase } from '../context/PokemonDetailContext';
 
 export type PokemonDetailState =
   | { readonly status: 'loading' }
-  | { readonly status: 'not-found' }
+  | { readonly status: 'not-found'; readonly message: string }
   | {
       readonly status: 'error';
       readonly message: string;
@@ -63,23 +58,16 @@ export function usePokemonDetail(pokemonId: number): DetailController {
       if (!mounted.current || token !== generation.current) {
         return;
       }
-      if (error instanceof HttpError && error.status === 404) {
-        publish({ status: 'not-found' });
-      } else {
-        const message =
-          error instanceof InvalidArgumentError
-            ? 'This Pokémon identifier is invalid.'
-            : error instanceof NetworkError
-            ? 'Unable to connect. Check your connection and try again.'
-            : error instanceof InvalidPayloadError
-            ? 'Pokémon information is unavailable right now. Please try again.'
-            : 'Unable to load this Pokémon right now. Please try again.';
-        publish({
-          status: 'error',
-          message,
-          canRetry: !(error instanceof InvalidArgumentError),
-        });
-      }
+      const feedback = mapPokemonError(error, 'detail');
+      publish(
+        feedback.kind === 'not-found'
+          ? { status: 'not-found', message: feedback.message }
+          : {
+              status: 'error',
+              message: feedback.message,
+              canRetry: feedback.canRetry,
+            },
+      );
     } finally {
       if (token === generation.current) {
         inFlight.current = false;

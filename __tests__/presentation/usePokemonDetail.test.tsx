@@ -77,6 +77,7 @@ describe('usePokemonDetail', () => {
   it.each([
     new NetworkError('secret'),
     new HttpError(503),
+    new HttpError(429),
     new InvalidPayloadError('secret'),
   ])('handles errors and guarded retry: %s', async error => {
     execute.mockRejectedValueOnce(error);
@@ -111,6 +112,17 @@ describe('usePokemonDetail', () => {
     },
   );
 
+  it('does not retry a permanent HTTP failure', async () => {
+    execute.mockRejectedValueOnce(new HttpError(403));
+    await mount();
+    expect(controller.state).toMatchObject({
+      status: 'error',
+      canRetry: false,
+    });
+    await act(async () => controller.retry());
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
   it.each([0, -1, 0.5, Number.NaN])(
     'handles invalid ID %s without accessing the repository',
     async id => {
@@ -122,7 +134,8 @@ describe('usePokemonDetail', () => {
       await mount(id);
       expect(controller.state).toEqual({
         status: 'error',
-        message: 'This Pokémon identifier is invalid.',
+        message:
+          'We couldn’t open this Pokémon. Return to the list and select it again.',
         canRetry: false,
       });
       expect(getPokemonById).not.toHaveBeenCalled();

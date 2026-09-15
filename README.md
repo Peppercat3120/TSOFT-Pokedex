@@ -87,9 +87,13 @@ The selected navigation ID drives `GET https://pokeapi.co/api/v2/pokemon/{pokemo
 - Types and abilities are displayed in slot order, with hidden abilities annotated. Names are humanized only for presentation.
 - Height is converted from decimetres to metres and weight from hectograms to kilograms, both with one decimal. Nullable base experience shows “Not available”; zero remains visible.
 - Statistics show exact numeric values in HP/Attack/Defense/Special Attack/Special Defense/Speed order, additional statistics afterward, and a total. Empty types, abilities, or statistics receive section-specific feedback.
-- Loading and retryable connectivity/service/payload errors have explicit feedback. HTTP 404 displays “Pokémon not found” with a back action; invalid IDs do not trigger futile retries. Old responses are ignored on ID changes or unmount.
+- Loading and retryable connectivity/service/payload errors have explicit feedback. HTTP 404 displays “This Pokémon couldn’t be found” with a back action; invalid IDs do not trigger futile retries. Old responses are ignored on ID changes or unmount.
 - Detail DTOs are cached separately by ID with the same 24-hour TTL and stale fallback policy. Cached list rows do not imply a cached detail: opening an unvisited Pokémon offline can still fail. Images are not explicitly persisted.
 - Back navigation returns to the mounted list without replacing its loaded pages or scroll position. The detail screen uses wrapping layouts, scalable text, semantic section headings, and decorative artwork for screen readers.
+
+## Centralized error feedback
+
+A pure presentation-layer error mapper provides consistent messages and retry decisions for the initial list, pagination, and detail. Connectivity failures, HTTP 408, HTTP 429, server failures, invalid responses, and unknown failures allow explicit retry. Other HTTP 4xx errors and invalid arguments do not offer repeated requests; detail provides a back action, while list feedback advises restarting the app. Rate-limit feedback asks the user to wait; there is no automatic retry or enforced countdown. Pagination failures preserve loaded rows and explain that they remain available. Technical error details are never displayed. Domain error classes and cache fallback rules remain separate from UI wording.
 
 ## Libraries and boundaries
 

@@ -1,10 +1,4 @@
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PokemonProfile } from '../components/PokemonProfile';
 import { PokemonDetailLoadingSkeleton } from '../components/LoadingSkeletons';
@@ -47,9 +41,7 @@ export function PokemonDetailScreen({
     >
       <>
         <Text accessibilityRole="alert" style={styles.message}>
-          {state.status === 'not-found'
-            ? 'Pokémon not found.'
-            : state.message}
+          {state.message}
         </Text>
         <Pressable
           accessibilityRole="button"

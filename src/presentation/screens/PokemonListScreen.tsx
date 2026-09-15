@@ -1,11 +1,5 @@
 import { useCallback, useRef } from 'react';
-import {
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ListRenderItemInfo } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { PokemonSummary } from '../../domain/entities/Pokemon';
@@ -63,7 +57,10 @@ export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
             <Text accessibilityRole="alert" style={styles.message}>
               {state.status === 'error' ? state.message : 'No Pokémon found.'}
             </Text>
-            <RetryButton label="Try again" onPress={retryInitial} />
+            {(state.status === 'empty' ||
+              (state.status === 'error' && state.canRetry)) && (
+              <RetryButton label="Try again" onPress={retryInitial} />
+            )}
           </>
         )}
       </View>
@@ -109,13 +106,15 @@ export function PokemonListScreen({ navigation }: PokemonListScreenProps) {
               <Text accessibilityRole="alert" style={styles.message}>
                 {state.loadMore.message}
               </Text>
-              <RetryButton
-                label="Retry loading more"
-                onPress={() => {
-                  scrollArmed.current = false;
-                  retryNextPage();
-                }}
-              />
+              {state.loadMore.canRetry && (
+                <RetryButton
+                  label="Retry loading more"
+                  onPress={() => {
+                    scrollArmed.current = false;
+                    retryNextPage();
+                  }}
+                />
+              )}
             </>
           ) : state.nextPage === null ? (
             <Text style={styles.message}>You’ve reached the end.</Text>

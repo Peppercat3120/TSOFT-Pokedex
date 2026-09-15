@@ -3,16 +3,24 @@ import type {
   PokemonPageRequest,
   PokemonSummary,
 } from '../../domain/entities/Pokemon';
-import { NetworkError } from '../../domain/errors/PokemonErrors';
+import { mapPokemonError } from '../errors/mapPokemonError';
 import { usePokemonPageUseCase } from '../context/PokemonListContext';
 
 type LoadMoreState =
   | { readonly status: 'idle' | 'loading' }
-  | { readonly status: 'error'; readonly message: string };
+  | {
+      readonly status: 'error';
+      readonly message: string;
+      readonly canRetry: boolean;
+    };
 
 export type PokemonListState =
   | { readonly status: 'loading' | 'empty' }
-  | { readonly status: 'error'; readonly message: string }
+  | {
+      readonly status: 'error';
+      readonly message: string;
+      readonly canRetry: boolean;
+    }
   | {
       readonly status: 'ready';
       readonly items: readonly PokemonSummary[];
@@ -20,12 +28,6 @@ export type PokemonListState =
       readonly hasStaleData: boolean;
       readonly loadMore: LoadMoreState;
     };
-
-function errorMessage(error: unknown): string {
-  return error instanceof NetworkError
-    ? 'Unable to connect. Check your connection and try again.'
-    : 'Unable to load Pokémon right now. Please try again.';
-}
 
 export function usePokemonList() {
   const useCase = usePokemonPageUseCase();
@@ -50,7 +52,8 @@ export function usePokemonList() {
         !initial &&
         (previous.status !== 'ready' ||
           previous.nextPage === null ||
-          (previous.loadMore.status === 'error' && !retry))
+          (previous.loadMore.status === 'error' &&
+            (!retry || !previous.loadMore.canRetry)))
       ) {
         return;
       }
@@ -105,11 +108,14 @@ export function usePokemonList() {
         if (!mounted.current || token !== generation.current) {
           return;
         }
-        const message = errorMessage(error);
+        const { message, canRetry } = mapPokemonError(
+          error,
+          initial ? 'list' : 'pagination',
+        );
         publish(
           !initial && previous.status === 'ready'
-            ? { ...previous, loadMore: { status: 'error', message } }
-            : { status: 'error', message },
+            ? { ...previous, loadMore: { status: 'error', message, canRetry } }
+            : { status: 'error', message, canRetry },
         );
       } finally {
         if (token === generation.current) {
@@ -132,7 +138,7 @@ export function usePokemonList() {
 
   const retryInitial = useCallback(() => {
     if (
-      stateRef.current.status === 'error' ||
+      (stateRef.current.status === 'error' && stateRef.current.canRetry) ||
       stateRef.current.status === 'empty'
     ) {
       load(true);

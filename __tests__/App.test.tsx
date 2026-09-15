@@ -87,7 +87,7 @@ describe('Pokémon list application', () => {
     execute.mockRejectedValueOnce(new NetworkError('offline'));
     await mount();
     expect(
-      hasText('Unable to connect. Check your connection and try again.'),
+      hasText('We couldn’t connect to PokéAPI. Check your connection and try again.'),
     ).toBe(true);
     await act(async () => pressButton('Try again'));
     expect(renderer.root.findByType(FlatList).props.data).toHaveLength(20);
@@ -194,7 +194,7 @@ describe('Pokémon list application', () => {
         .findAllByProps({ testID: 'pokemon-row-1' })[0]
         .props.onPress(),
     );
-    expect(hasText('Pokémon not found.')).toBe(true);
+    expect(hasText('This Pokémon couldn’t be found.')).toBe(true);
     await act(async () => pressButton('Back to list'));
     expect(list().props.data).toHaveLength(40);
     expect(execute).toHaveBeenCalledTimes(2);
@@ -209,7 +209,7 @@ describe('Pokémon list application', () => {
         .props.onPress(),
     );
     expect(
-      hasText('Unable to connect. Check your connection and try again.'),
+      hasText('We couldn’t connect to PokéAPI. Check your connection and try again.'),
     ).toBe(true);
     await act(async () => pressButton('Try again'));
     expect(hasText('Attributes')).toBe(true);
