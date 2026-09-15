@@ -1,0 +1,4 @@
+<resources>
+    <!-- ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED: allow tablet rotation. -->
+    <integer name="main_activity_orientation">-1</integer>
+</resources>

@@ -1,0 +1,4 @@
+<resources>
+    <!-- ActivityInfo.SCREEN_ORIENTATION_PORTRAIT: lock phones to portrait. -->
+    <integer name="main_activity_orientation">1</integer>
+</resources>
