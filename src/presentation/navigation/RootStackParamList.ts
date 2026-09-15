@@ -1,7 +1,4 @@
-import type {
-  NativeStackNavigationProp,
-  NativeStackScreenProps,
-} from '@react-navigation/native-stack';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 export type RootStackParamList = {
   PokemonList: undefined;
@@ -9,8 +6,6 @@ export type RootStackParamList = {
     pokemonId: number;
   };
 };
-
-export type RootStackNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export type PokemonListScreenProps = NativeStackScreenProps<
   RootStackParamList,
