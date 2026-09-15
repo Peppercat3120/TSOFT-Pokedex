@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 export type ImageFailureReporter = (key: string, failed: boolean) => void;
 
@@ -15,7 +15,9 @@ export function useRetryableImage(
       mounted.current = false;
     };
   }, []);
+  const instance = useId();
   const identity = JSON.stringify(urls);
+  const failureKey = `${instance}:${identity}`;
   const [attempt, setAttempt] = useState({
     identity,
     generation,
@@ -44,12 +46,12 @@ export function useRetryableImage(
   const failed = urls.length > 0 && current.index >= urls.length;
   useEffect(() => {
     if (failed) {
-      report?.(identity, true);
+      report?.(failureKey, true);
     } else if (current.loaded) {
-      report?.(identity, false);
+      report?.(failureKey, false);
     }
-  }, [identity, failed, current.loaded, report]);
-  useEffect(() => () => report?.(identity, false), [identity, report]);
+  }, [failureKey, failed, current.loaded, report]);
+  useEffect(() => () => report?.(failureKey, false), [failureKey, report]);
   const update = (loaded: boolean) => {
     if (!mounted.current || latest.current !== current) {
       return;

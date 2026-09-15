@@ -99,6 +99,30 @@ describe('usePokemonDetail', () => {
       jest.useRealTimers();
     }
   });
+  it('coalesces manual refreshes during a request into one additional read', async () => {
+    await mount();
+    let finish!: (value: typeof detail) => void;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        }),
+    );
+    await act(async () => {
+      controller.refresh();
+    });
+    await act(async () => {
+      await controller.refresh();
+      await controller.refresh();
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(controller.state.status).toBe('ready');
+    execute.mockResolvedValueOnce(detail);
+    await act(async () => finish(detail));
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(controller.refreshing).toBe(false);
+  });
+
   it('loads the requested identifier and passes ready data', async () => {
     await mount(25);
     expect(execute).toHaveBeenCalledWith(25);

@@ -27,9 +27,10 @@ describe('bounded recovery', () => {
   }
   beforeEach(() => {
     jest.useFakeTimers();
-    recover = jest.fn().mockResolvedValue(undefined);
+    recover = jest.fn().mockResolvedValue('attempted');
     jest
       .spyOn(AppState, 'addEventListener')
+      .mockClear()
       .mockImplementation((_event, callback) => {
         listener = callback;
         return { remove };
@@ -57,7 +58,7 @@ describe('bounded recovery', () => {
       await advance(delay);
     }
     expect(recover).toHaveBeenCalledTimes(5);
-    expect(recover.mock.calls[0][0]).toBe('data');
+    expect(recover).toHaveBeenCalledWith();
     expect(controller.recoveryExhausted).toBe(true);
     await advance(60000);
     expect(recover).toHaveBeenCalledTimes(5);
@@ -84,29 +85,74 @@ describe('bounded recovery', () => {
     await advance(60000);
     expect(recover).not.toHaveBeenCalled();
   });
+  it('uses one lifecycle subscription and recovers immediately on refocus', async () => {
+    await mount();
+    await act(async () => controller.reportImageFailure('image', true));
+    await act(async () => renderer.update(<Harness focused={false} />));
+    await advance(60000);
+    expect(recover).not.toHaveBeenCalled();
+    expect(controller.imageRetryGeneration).toBe(0);
+    await act(async () => renderer.update(<Harness />));
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(controller.imageRetryGeneration).toBe(1);
+    expect(AppState.addEventListener).toHaveBeenCalledTimes(1);
+    await advance(2000);
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(controller.imageRetryGeneration).toBe(2);
+  });
   it('does not consume a round when the controller is busy', async () => {
     await mount();
-    recover.mockResolvedValue(false);
+    recover.mockResolvedValue('busy');
     for (let index = 0; index < 7; index++) {
       await advance(2000);
     }
     expect(controller.recoveryExhausted).toBe(false);
   });
-  it('uses explicit image and combined recovery reasons', async () => {
+  it('gives late image failures a full budget after data exhaustion', async () => {
+    await mount();
+    for (const delay of [2000, 4000, 8000, 16000, 30000]) {
+      await advance(delay);
+    }
+    expect(recover).toHaveBeenCalledTimes(5);
+    await act(async () => controller.reportImageFailure('image', true));
+    for (const delay of [2000, 4000, 8000, 16000, 30000]) {
+      await advance(delay);
+    }
+    expect(controller.imageRetryGeneration).toBe(5);
+    expect(recover).toHaveBeenCalledTimes(5);
+  });
+  it('recovers images while a data attempt is still in flight', async () => {
+    let finish!: (outcome: 'attempted') => void;
+    recover.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        }),
+    );
+    await mount();
+    await act(async () => controller.reportImageFailure('image', true));
+    await advance(2000);
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(controller.imageRetryGeneration).toBe(1);
+    await advance(4000);
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(controller.imageRetryGeneration).toBe(2);
+    await act(async () => finish('attempted'));
+  });
+  it('keeps separate mounted failures pending when one is disposed', async () => {
     await act(async () => {
       renderer = Renderer.create(<Harness dataPending={false} />);
     });
-    recover.mockClear();
-    await act(async () => controller.reportImageFailure('image', true));
+    await act(async () => {
+      controller.reportImageFailure('first', true);
+      controller.reportImageFailure('second', true);
+      controller.reportImageFailure('first', false);
+    });
     await advance(2000);
-    expect(recover).toHaveBeenLastCalledWith('images', expect.any(Function));
-
-    await act(async () => renderer.update(<Harness dataPending />));
-    await advance(4000);
-    expect(recover).toHaveBeenLastCalledWith(
-      'data-and-images',
-      expect.any(Function),
-    );
+    expect(controller.imageRetryGeneration).toBe(1);
+    await act(async () => controller.reportImageFailure('second', false));
+    await advance(60000);
+    expect(controller.imageRetryGeneration).toBe(1);
   });
   it('limits automatic retries to connectivity, timeouts, and server errors', () => {
     for (const error of [

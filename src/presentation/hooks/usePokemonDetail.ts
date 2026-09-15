@@ -1,178 +1,122 @@
+import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { canRecoverAutomatically, useAutomaticRecovery } from './useRecovery';
+import type { RecoveryOutcome } from './useBoundedRecovery';
 import {
-  canRecoverAutomatically,
-  useAutomaticRecovery,
-  type RecoveryReason,
-} from './useRecovery';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PokemonDetail } from '../../domain/entities/Pokemon';
+  initialDetailModel,
+  pokemonDetailReducer,
+  type PokemonDetailAction,
+} from './pokemonDetailState';
 import { mapPokemonError } from '../errors/mapPokemonError';
 import { usePokemonDetailUseCase } from '../context/PokemonDetailContext';
-
-export type PokemonDetailState =
-  | { readonly status: 'loading' }
-  | { readonly status: 'not-found'; readonly message: string }
-  | {
-      readonly status: 'error';
-      readonly message: string;
-      readonly canRetry: boolean;
-    }
-  | {
-      readonly status: 'ready';
-      readonly pokemon: PokemonDetail;
-      readonly isStale: boolean;
-    };
+export type { PokemonDetailState } from './pokemonDetailState';
 
 export function usePokemonDetail(pokemonId: number, focused = true) {
-  const [autoPending, setAutoPending] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const useCase = usePokemonDetailUseCase();
-  const [record, setRecord] = useState<{
-    readonly id: number;
-    readonly state: PokemonDetailState;
-  }>({ id: pokemonId, state: { status: 'loading' } });
-  const current = useRef(record);
+  const [model, dispatch] = useReducer(
+    pokemonDetailReducer,
+    pokemonId,
+    initialDetailModel,
+  );
+  const current = useRef(model);
   const mounted = useRef(false);
   const generation = useRef(0);
   const inFlight = useRef(false);
   const queuedRefresh = useRef(false);
-  const refreshAction = useRef<() => Promise<void>>(async () => {});
-
+  const refreshAction = useRef<() => Promise<RecoveryOutcome>>(
+    async () => 'busy',
+  );
+  const send = useCallback((action: PokemonDetailAction) => {
+    current.current = pokemonDetailReducer(current.current, action);
+    dispatch(action);
+  }, []);
   const load = useCallback(
-    async (networkFirst = false) => {
+    async (networkFirst = false): Promise<RecoveryOutcome> => {
       if (!mounted.current || inFlight.current) {
-        if (networkFirst && mounted.current) {
-          queuedRefresh.current = true;
-        }
-        return;
+        return 'busy';
       }
-      inFlight.current = true;
       const token = generation.current;
-      const publish = (state: PokemonDetailState) => {
-        const next = { id: pokemonId, state };
-        current.current = next;
-        setRecord(next);
-      };
-      const previous =
-        current.current.id === pokemonId ? current.current.state : null;
-      if (previous?.status !== 'ready') {
-        publish({ status: 'loading' });
-      }
-      setRefreshing(networkFirst);
-      setRefreshError(null);
-      if (!networkFirst) {
-        setAutoPending(false);
-      }
+      inFlight.current = true;
+      send({ type: 'start', networkFirst });
       try {
         const result = networkFirst
           ? await useCase.execute(pokemonId, { policy: 'network-first' })
           : await useCase.execute(pokemonId);
         if (mounted.current && token === generation.current) {
-          setAutoPending(result.isStale);
-          publish({
-            status: 'ready',
-            pokemon: result.data,
-            isStale: result.isStale,
-          });
+          send({ type: 'success', result });
         }
       } catch (error) {
-        if (!mounted.current || token !== generation.current) {
-          return;
+        if (mounted.current && token === generation.current) {
+          send({
+            type: 'error',
+            feedback: mapPokemonError(error, 'detail'),
+            auto: canRecoverAutomatically(error),
+          });
         }
-        setAutoPending(canRecoverAutomatically(error));
-        const feedback = mapPokemonError(error, 'detail');
-        if (previous?.status === 'ready' && feedback.canRetry) {
-          setRefreshError(feedback.message);
-          publish({ ...previous, isStale: true });
-          return;
-        }
-        publish(
-          feedback.kind === 'not-found'
-            ? { status: 'not-found', message: feedback.message }
-            : {
-                status: 'error',
-                message: feedback.message,
-                canRetry: feedback.canRetry,
-              },
-        );
       } finally {
         if (token === generation.current) {
           inFlight.current = false;
           if (mounted.current) {
-            setRefreshing(false);
+            send({ type: 'finish' });
             if (queuedRefresh.current) {
               queuedRefresh.current = false;
-              refreshAction.current();
+              await refreshAction.current();
             }
           }
         }
       }
+      return 'attempted';
     },
-    [pokemonId, useCase],
+    [pokemonId, send, useCase],
   );
-
   useEffect(() => {
     mounted.current = true;
+    queuedRefresh.current = false;
+    send({ type: 'reset', id: pokemonId });
     load();
     return () => {
       mounted.current = false;
       generation.current += 1;
       inFlight.current = false;
+      queuedRefresh.current = false;
     };
-  }, [load]);
-
-  refreshAction.current = () => load(true);
-  const recoverAutomatically = useCallback(
-    async (reason: RecoveryReason, retryImages: () => void) => {
-      if (inFlight.current || !mounted.current) {
-        return false;
-      }
-      if (reason !== 'data') {
-        retryImages();
-      }
-      if (reason !== 'images') {
-        await load(true);
-      }
-    },
-    [load],
-  );
-  const {
-    restartRecovery,
-    recoveryExhausted,
-    imageRetryGeneration,
-    reportImageFailure,
-    retryImages,
-  } = useAutomaticRecovery({
-    dataPending: autoPending,
+  }, [load, pokemonId, send]);
+  const recoverAutomatically = useCallback(() => load(true), [load]);
+  const recovery = useAutomaticRecovery({
+    dataPending: model.id === pokemonId && model.autoPending,
     focused,
     onRecover: recoverAutomatically,
   });
-  const refresh = useCallback(() => {
+  const { restartRecovery, retryImages } = recovery;
+  refreshAction.current = () => load(true);
+  const refresh = useCallback(async (): Promise<void> => {
     restartRecovery();
     retryImages();
-    return load(true);
-  }, [restartRecovery, retryImages, load]);
+    if (mounted.current && inFlight.current) {
+      queuedRefresh.current = true;
+      return;
+    }
+    await load(true);
+  }, [load, restartRecovery, retryImages]);
   const retry = useCallback(() => {
-    const state = current.current.state;
+    const latest = current.current;
     if (
-      Object.is(current.current.id, pokemonId) &&
-      state.status === 'error' &&
-      state.canRetry
+      Object.is(latest.id, pokemonId) &&
+      latest.state.status === 'error' &&
+      latest.state.canRetry
     ) {
       refresh();
     }
-  }, [refresh, pokemonId]);
-
+  }, [pokemonId, refresh]);
   return {
-    state: Object.is(record.id, pokemonId)
-      ? record.state
+    state: Object.is(model.id, pokemonId)
+      ? model.state
       : { status: 'loading' as const },
     retry,
     refresh,
-    refreshing,
-    refreshError,
-    recoveryExhausted,
-    imageRetryGeneration,
-    reportImageFailure,
+    refreshing: model.refreshing,
+    refreshError: model.refreshError,
+    recoveryExhausted: recovery.recoveryExhausted,
+    imageRetryGeneration: recovery.imageRetryGeneration,
+    reportImageFailure: recovery.reportImageFailure,
   };
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import Renderer, { act } from 'react-test-renderer';
 import { Image } from 'react-native';
 import { PokemonArtwork } from '../../src/presentation/components/PokemonArtwork';
+import { useImageRecovery } from '../../src/presentation/hooks/useImageRecovery';
 import { PokemonRow } from '../../src/presentation/components/PokemonRow';
 
 describe('image recovery', () => {
@@ -39,7 +40,7 @@ describe('image recovery', () => {
     expect(renderer.root.findAllByType(Image)).toHaveLength(1);
     await act(async () => renderer.root.findByType(Image).props.onLoad());
     expect(report).toHaveBeenLastCalledWith(
-      JSON.stringify([pokemon.imageUrl]),
+      expect.stringContaining(JSON.stringify([pokemon.imageUrl])),
       false,
     );
   });
@@ -67,5 +68,49 @@ describe('image recovery', () => {
     await act(async () => renderer.update(artwork(2, 'changed')));
     await act(async () => onLoad());
     expect(renderer.root.findByType(Image).props.source.uri).toBe('changed');
+  });
+  it('tracks duplicate URLs by instance and keeps failures pending during retry', async () => {
+    let recovery!: ReturnType<typeof useImageRecovery>;
+    function Harness({ first = true, url = 'shared' }) {
+      recovery = useImageRecovery();
+      const row = (id: number) => (
+        <PokemonRow
+          key={id}
+          pokemon={{ id, name: 'pokemon', imageUrl: url }}
+          onSelect={() => {}}
+          imageRetryGeneration={recovery.imageRetryGeneration}
+          reportImageFailure={recovery.reportImageFailure}
+        />
+      );
+      return (
+        <>
+          {first && row(1)}
+          {row(2)}
+        </>
+      );
+    }
+    await act(async () => {
+      renderer = Renderer.create(<Harness />);
+    });
+    const images = renderer.root.findAllByType(Image);
+    await act(async () => {
+      images[0].props.onError();
+      images[1].props.onError();
+    });
+    expect(recovery.pending).toBe(true);
+    await act(async () => renderer.update(<Harness first={false} />));
+    expect(recovery.pending).toBe(true);
+    await act(async () => recovery.retryImages());
+    expect(renderer.root.findAllByType(Image)).toHaveLength(1);
+    expect(recovery.pending).toBe(true);
+    await act(async () => renderer.root.findByType(Image).props.onLoad());
+    expect(recovery.pending).toBe(false);
+    await act(async () =>
+      renderer.update(<Harness first={false} url="replacement" />),
+    );
+    await act(async () => renderer.root.findByType(Image).props.onError());
+    expect(recovery.pending).toBe(true);
+    await act(async () => renderer.update(<Harness first={false} url="new" />));
+    expect(recovery.pending).toBe(false);
   });
 });

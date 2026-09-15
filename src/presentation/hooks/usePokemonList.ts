@@ -1,324 +1,224 @@
 import { AppState } from 'react-native';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { canRecoverAutomatically, useAutomaticRecovery } from './useRecovery';
+import type { RecoveryOutcome } from './useBoundedRecovery';
 import {
-  canRecoverAutomatically,
-  useAutomaticRecovery,
-  type RecoveryReason,
-} from './useRecovery';
-import {
-  appendPokemonPage,
   hasAutomaticPageRecovery,
   pagesToRefresh,
   snapshotPokemonPages,
-  type PokemonListPage,
 } from './pokemonListPages';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type {
-  PokemonPageRequest,
-  PokemonSummary,
-} from '../../domain/entities/Pokemon';
+import {
+  initialListModel,
+  pokemonListReducer,
+  type PokemonListAction,
+  type PokemonListState,
+} from './pokemonListState';
 import { mapPokemonError } from '../errors/mapPokemonError';
 import { usePokemonPageUseCase } from '../context/PokemonListContext';
+export type { PokemonListState } from './pokemonListState';
 
-type LoadMoreState =
-  | { readonly status: 'idle' | 'loading' }
-  | {
-      readonly status: 'error';
-      readonly message: string;
-      readonly canRetry: boolean;
-    };
-
-export type PokemonListState =
-  | { readonly status: 'loading' | 'empty' }
-  | {
-      readonly status: 'error';
-      readonly message: string;
-      readonly canRetry: boolean;
-    }
-  | {
-      readonly status: 'ready';
-      readonly items: readonly PokemonSummary[];
-      readonly nextPage: PokemonPageRequest | null;
-      readonly hasStaleData: boolean;
-      readonly loadMore: LoadMoreState;
-    };
+type RefreshMode = 'automatic' | 'stale' | 'all';
 
 export function usePokemonList(focused = true) {
+  const useCase = usePokemonPageUseCase();
+  const [model, dispatch] = useReducer(pokemonListReducer, initialListModel);
+  const current = useRef(model);
   const focusedRef = useRef(focused);
   focusedRef.current = focused;
-  const useCase = usePokemonPageUseCase();
-  const [state, setState] = useState<PokemonListState>({ status: 'loading' });
-  const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [autoPending, setAutoPending] = useState(false);
-  const pages = useRef(new Map<number, PokemonListPage>());
-  const paginationAuto = useRef(false);
-  const queuedRefresh = useRef(false);
-  const refreshAction = useRef<() => Promise<void | boolean>>(async () => {});
-  const stateRef = useRef(state);
   const mounted = useRef(false);
   const generation = useRef(0);
   const inFlight = useRef(false);
-
-  const publish = useCallback((next: PokemonListState) => {
-    stateRef.current = next;
-    setState(next);
+  const queuedRefresh = useRef(false);
+  const refreshAction = useRef<() => Promise<RecoveryOutcome>>(
+    async () => 'busy',
+  );
+  const send = useCallback((action: PokemonListAction) => {
+    // Async operations need the latest transition before React commits a render.
+    current.current = pokemonListReducer(current.current, action);
+    dispatch(action);
   }, []);
+  const visible = useCallback(
+    (token: number) => mounted.current && token === generation.current,
+    [],
+  );
+  const canRecover = useCallback(
+    () =>
+      mounted.current &&
+      focusedRef.current &&
+      AppState.currentState !== 'background' &&
+      AppState.currentState !== 'inactive',
+    [],
+  );
 
   const load = useCallback(
-    async (initial: boolean, retry = false) => {
+    async (initial: boolean, retry = false): Promise<RecoveryOutcome> => {
       if (!mounted.current || inFlight.current) {
-        return;
+        return 'busy';
       }
-      const previous = stateRef.current;
+      const previous = current.current;
+      const snapshot = snapshotPokemonPages(previous.pages);
+      const request = initial
+        ? { offset: 0, limit: 20 }
+        : previous.failedRequest ?? snapshot.nextPage;
       if (
         !initial &&
-        (previous.status !== 'ready' ||
-          previous.nextPage === null ||
+        (previous.status !== 'loaded' ||
+          request === null ||
           (previous.loadMore.status === 'error' &&
             (!retry || !previous.loadMore.canRetry)))
       ) {
-        return;
+        return 'attempted';
       }
-      const request =
-        !initial && previous.status === 'ready' && previous.nextPage
-          ? { offset: previous.nextPage.offset, limit: 20 }
-          : { offset: 0, limit: 20 };
+      if (request === null) {
+        return 'attempted';
+      }
       const token = generation.current;
       inFlight.current = true;
-      publish(
-        !initial && previous.status === 'ready'
-          ? { ...previous, loadMore: { status: 'loading' } }
-          : { status: 'loading' },
-      );
+      send({ type: 'load-start', initial });
       try {
         const result = retry
           ? await useCase.execute(request, { policy: 'network-first' })
           : await useCase.execute(request);
-        if (!mounted.current || token !== generation.current) {
-          return;
+        if (visible(token)) {
+          send({
+            type: 'load-success',
+            initial,
+            page: { request, result, auto: result.isStale },
+          });
         }
-        if (initial) {
-          pages.current.clear();
-        }
-        pages.current.set(request.offset, {
-          request,
-          result,
-          auto: result.isStale,
-        });
-        paginationAuto.current = false;
-        const existing =
-          !initial && previous.status === 'ready' ? previous.items : [];
-        const { items, nextPage } = appendPokemonPage(
-          existing,
-          request,
-          result.data,
-        );
-        setAutoPending(hasAutomaticPageRecovery(pages.current));
-        publish(
-          items.length === 0
-            ? { status: 'empty' }
-            : {
-                status: 'ready',
-                items,
-                nextPage,
-                hasStaleData: snapshotPokemonPages(pages.current).hasStaleData,
-                loadMore: { status: 'idle' },
-              },
-        );
       } catch (error) {
-        if (!mounted.current || token !== generation.current) {
-          return;
+        if (visible(token)) {
+          send({
+            type: 'load-error',
+            initial,
+            request,
+            feedback: mapPokemonError(error, initial ? 'list' : 'pagination'),
+            auto: canRecoverAutomatically(error),
+          });
         }
-        paginationAuto.current = canRecoverAutomatically(error);
-        setAutoPending(
-          paginationAuto.current || hasAutomaticPageRecovery(pages.current),
-        );
-        const { message, canRetry } = mapPokemonError(
-          error,
-          initial ? 'list' : 'pagination',
-        );
-        publish(
-          !initial && previous.status === 'ready'
-            ? { ...previous, loadMore: { status: 'error', message, canRetry } }
-            : { status: 'error', message, canRetry },
-        );
       } finally {
         if (token === generation.current) {
           inFlight.current = false;
           if (mounted.current && queuedRefresh.current) {
             queuedRefresh.current = false;
-            refreshAction.current();
+            await refreshAction.current();
           }
         }
       }
+      return 'attempted';
     },
-    [publish, useCase],
+    [send, useCase, visible],
   );
 
   useEffect(() => {
     mounted.current = true;
+    queuedRefresh.current = false;
+    send({ type: 'reset' });
     load(true);
     return () => {
       mounted.current = false;
       generation.current += 1;
       inFlight.current = false;
+      queuedRefresh.current = false;
     };
-  }, [load]);
+  }, [load, send]);
 
   const recoverData = useCallback(
-    async (all = false, explicit = false) => {
+    async (mode: RefreshMode = 'automatic'): Promise<RecoveryOutcome> => {
       if (!mounted.current || inFlight.current) {
-        if (all) {
+        if (mounted.current && mode === 'all') {
           queuedRefresh.current = true;
         }
-        return false;
+        return 'busy';
       }
-      if (
-        !all &&
-        (!focusedRef.current ||
-          AppState.currentState === 'background' ||
-          AppState.currentState === 'inactive')
-      ) {
-        return false;
+      if (!canRecover()) {
+        return 'busy';
       }
-      const previous = stateRef.current;
-      if (previous.status !== 'ready') {
+      const previous = current.current;
+      if (previous.status !== 'loaded') {
         if (
-          ((all || hasAutomaticPageRecovery(pages.current)) &&
-            previous.status === 'empty') ||
-          (previous.status === 'error' &&
-            previous.canRetry &&
-            (all || paginationAuto.current))
+          previous.initialError?.canRetry &&
+          (mode === 'all' || previous.requestAuto)
         ) {
-          await load(true, true);
+          return load(true, true);
         }
-        return;
+        return 'attempted';
       }
-      inFlight.current = true;
-      setRefreshing(true);
-      setRefreshError(null);
       const token = generation.current;
-      let retryable = false;
+      inFlight.current = true;
+      send({ type: 'refresh-start' });
       try {
-        for (const [offset, page] of pagesToRefresh(
-          pages.current,
-          all,
-          explicit,
+        for (const page of pagesToRefresh(
+          previous.pages,
+          mode === 'all',
+          mode === 'stale',
         )) {
-          if (
-            !focusedRef.current ||
-            AppState.currentState === 'background' ||
-            AppState.currentState === 'inactive'
-          ) {
+          if (!visible(token) || !canRecover()) {
             break;
           }
           try {
             const result = await useCase.execute(page.request, {
               policy: 'network-first',
             });
-            if (!mounted.current || token !== generation.current) {
-              return;
+            if (!visible(token)) {
+              return 'attempted';
             }
-            pages.current.set(offset, {
-              ...page,
-              result,
-              auto: result.isStale,
-            });
+            send({ type: 'page-success', request: page.request, result });
           } catch (error) {
-            if (!mounted.current || token !== generation.current) {
-              return;
+            if (!visible(token)) {
+              return 'attempted';
             }
-            setRefreshError(mapPokemonError(error, 'list').message);
-            const auto = canRecoverAutomatically(error);
-            retryable = retryable || auto;
-            pages.current.set(offset, {
-              ...page,
-              result: { ...page.result, isStale: true },
-              auto,
+            send({
+              type: 'page-error',
+              request: page.request,
+              message: mapPokemonError(error, 'list').message,
+              auto: canRecoverAutomatically(error),
             });
-          }
-          if (!mounted.current || token !== generation.current) {
-            return;
           }
         }
-        const snapshot = snapshotPokemonPages(pages.current);
-        publish({
-          ...previous,
-          items: snapshot.items,
-          hasStaleData: snapshot.hasStaleData,
-          nextPage:
-            previous.loadMore.status === 'error'
-              ? previous.nextPage
-              : snapshot.nextPage,
-        });
-        setAutoPending(
-          retryable ||
-            paginationAuto.current ||
-            hasAutomaticPageRecovery(pages.current),
-        );
       } finally {
-        if (mounted.current && token === generation.current) {
+        if (visible(token)) {
           inFlight.current = false;
-          setRefreshing(false);
+          send({ type: 'refresh-end' });
         }
       }
+      const latest = current.current;
       if (
-        mounted.current &&
-        focusedRef.current &&
-        AppState.currentState !== 'background' &&
-        AppState.currentState !== 'inactive' &&
-        token === generation.current &&
-        previous.loadMore.status === 'error' &&
-        previous.loadMore.canRetry &&
-        (all || explicit || paginationAuto.current)
+        visible(token) &&
+        canRecover() &&
+        latest.loadMore.status === 'error' &&
+        latest.loadMore.canRetry &&
+        (mode !== 'automatic' || latest.requestAuto)
       ) {
         await load(false, true);
       }
-      if (queuedRefresh.current) {
+      if (visible(token) && queuedRefresh.current) {
         queuedRefresh.current = false;
-        await recoverData(true);
+        await refreshAction.current();
       }
+      return 'attempted';
     },
-    [load, publish, useCase],
+    [canRecover, load, send, useCase, visible],
   );
-  const recoverAutomatically = useCallback(
-    async (reason: RecoveryReason, retryImages: () => void) => {
-      if (!mounted.current || inFlight.current) {
-        return false;
-      }
-      if (reason !== 'data') {
-        retryImages();
-      }
-      if (reason !== 'images') {
-        await recoverData();
-      }
-    },
-    [recoverData],
-  );
-  const {
-    restartRecovery,
-    recoveryExhausted,
-    imageRetryGeneration,
-    reportImageFailure,
-    retryImages,
-  } = useAutomaticRecovery({
-    dataPending: autoPending,
+
+  const recovery = useAutomaticRecovery({
+    dataPending: model.requestAuto || hasAutomaticPageRecovery(model.pages),
     focused,
-    onRecover: recoverAutomatically,
+    onRecover: recoverData,
   });
-  refreshAction.current = async () => {
-    retryImages();
-    return recoverData(true);
-  };
-  const refresh = useCallback(() => {
+  const { restartRecovery, retryImages } = recovery;
+  refreshAction.current = () => recoverData('all');
+  const refresh = useCallback(async (): Promise<void> => {
     restartRecovery();
     retryImages();
-    return recoverData(true);
+    await recoverData('all');
   }, [restartRecovery, retryImages, recoverData]);
   const retryInitial = useCallback(() => {
+    const latest = current.current;
     if (
-      (stateRef.current.status === 'error' && stateRef.current.canRetry) ||
-      stateRef.current.status === 'empty'
+      latest.initialError?.canRetry ||
+      (latest.status === 'loaded' &&
+        snapshotPokemonPages(latest.pages).items.length === 0)
     ) {
       restartRecovery();
       load(true, true);
@@ -328,28 +228,46 @@ export function usePokemonList(focused = true) {
     load(false);
   }, [load]);
   const retryNextPage = useCallback(() => {
-    const current = stateRef.current;
     if (
-      current.status === 'ready' &&
-      current.loadMore.status === 'error' &&
-      current.loadMore.canRetry
+      current.current.loadMore.status === 'error' &&
+      current.current.loadMore.canRetry
     ) {
       restartRecovery();
       retryImages();
-      recoverData(false, true);
+      recoverData('stale');
     }
   }, [recoverData, restartRecovery, retryImages]);
-
+  const snapshot = useMemo(
+    () => snapshotPokemonPages(model.pages),
+    [model.pages],
+  );
+  const state: PokemonListState =
+    model.status === 'loading'
+      ? { status: 'loading' }
+      : model.status === 'error' && model.initialError
+      ? {
+          status: 'error',
+          message: model.initialError.message,
+          canRetry: model.initialError.canRetry,
+        }
+      : snapshot.items.length === 0
+      ? { status: 'empty' }
+      : {
+          status: 'ready',
+          ...snapshot,
+          nextPage: model.failedRequest ?? snapshot.nextPage,
+          loadMore: model.loadMore,
+        };
   return {
     state,
     retryInitial,
     loadNextPage,
     retryNextPage,
-    refreshing,
-    refreshError,
     refresh,
-    recoveryExhausted,
-    imageRetryGeneration,
-    reportImageFailure,
+    refreshing: model.refreshing,
+    refreshError: model.refreshError,
+    recoveryExhausted: recovery.recoveryExhausted,
+    imageRetryGeneration: recovery.imageRetryGeneration,
+    reportImageFailure: recovery.reportImageFailure,
   };
 }

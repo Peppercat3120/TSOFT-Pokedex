@@ -191,6 +191,74 @@ describe('usePokemonList', () => {
       [{ offset: 20, limit: 20 }, { policy: 'network-first' }],
     ]);
   });
+  it.each(['empty', 'duplicate'])(
+    'keeps a %s page stopped through refresh',
+    async kind => {
+      const stopped = {
+        ...secondPageFixture,
+        results: kind === 'empty' ? [] : firstPageFixture.results,
+      };
+      await mount();
+      execute.mockResolvedValueOnce(result(stopped));
+      await act(async () => controller.loadNextPage());
+      expect(ready().nextPage).toBeNull();
+      execute
+        .mockResolvedValueOnce(result(firstPageFixture))
+        .mockResolvedValueOnce(result(stopped));
+      await act(async () => {
+        await controller.refresh();
+      });
+      expect(ready().nextPage).toBeNull();
+      expect(ready().items).toHaveLength(20);
+      const calls = execute.mock.calls.length;
+      await act(async () => controller.loadNextPage());
+      expect(execute).toHaveBeenCalledTimes(calls);
+      execute
+        .mockResolvedValueOnce(result(firstPageFixture))
+        .mockResolvedValueOnce(result(secondPageFixture));
+      await act(async () => {
+        await controller.refresh();
+      });
+      expect(ready().nextPage).toEqual({ offset: 40, limit: 20 });
+      expect(ready().items).toHaveLength(40);
+    },
+  );
+  it('shows the empty state when a refreshed first page becomes empty', async () => {
+    await mount();
+    execute.mockResolvedValueOnce(result({ ...firstPageFixture, results: [] }));
+    await act(async () => {
+      await controller.refresh();
+    });
+    expect(controller.state.status).toBe('empty');
+    expect(controller.refreshing).toBe(false);
+    execute.mockResolvedValueOnce(result(firstPageFixture));
+    await act(async () => controller.retryInitial());
+    expect(ready().items).toHaveLength(20);
+  });
+  it('keeps images recovering during a locked pagination request', async () => {
+    jest.useFakeTimers();
+    try {
+      await mount();
+      let finish!: (value: RepositoryResult<PokemonPage>) => void;
+      execute.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finish = resolve;
+          }),
+      );
+      await act(async () => controller.loadNextPage());
+      await act(async () => controller.reportImageFailure('image', true));
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(controller.imageRetryGeneration).toBe(1);
+      expect(execute).toHaveBeenCalledTimes(2);
+      await act(async () => finish(result(secondPageFixture)));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('loads and appends 20 at a time, preserves rows, and stops on a final partial page', async () => {
     execute
       .mockResolvedValueOnce(result(firstPageFixture))

@@ -4,10 +4,7 @@ import {
   NetworkError,
   NotFoundError,
 } from '../../domain/errors/PokemonErrors';
-import type {
-  PokemonDetailDto,
-  PokemonListDto,
-} from '../dtos/PokemonDtos';
+import type { PokemonDetailDto, PokemonListDto } from '../dtos/PokemonDtos';
 import {
   assertPokemonDetailDto,
   assertPokemonListDto,
@@ -19,7 +16,10 @@ export interface FetchResponse {
   json(): Promise<unknown>;
 }
 
-export type FetchFunction = (url: string) => Promise<FetchResponse>;
+export type FetchFunction = (
+  url: string,
+  options: { readonly signal: AbortSignal },
+) => Promise<FetchResponse>;
 
 export interface PokemonRemoteDataSource {
   getPokemonPage(offset: number, limit: number): Promise<PokemonListDto>;
@@ -31,7 +31,9 @@ export class FetchPokemonRemoteDataSource implements PokemonRemoteDataSource {
 
   constructor(
     baseUrl: string = 'https://pokeapi.co/api/v2',
-    private readonly fetcher: FetchFunction = url => fetch(url),
+    private readonly fetcher: FetchFunction = (url, options) =>
+      fetch(url, options),
+    private readonly timeoutMs: number = 15000,
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
   }
@@ -54,7 +56,7 @@ export class FetchPokemonRemoteDataSource implements PokemonRemoteDataSource {
       height: payload.height,
       weight: payload.weight,
       abilities: payload.abilities.map(ability => ({
-        ability: {name: ability.ability.name, url: ability.ability.url},
+        ability: { name: ability.ability.name, url: ability.ability.url },
         is_hidden: ability.is_hidden,
         slot: ability.slot,
       })),
@@ -69,34 +71,47 @@ export class FetchPokemonRemoteDataSource implements PokemonRemoteDataSource {
       },
       stats: payload.stats.map(stat => ({
         base_stat: stat.base_stat,
-        stat: {name: stat.stat.name, url: stat.stat.url},
+        stat: { name: stat.stat.name, url: stat.stat.url },
       })),
       types: payload.types.map(type => ({
         slot: type.slot,
-        type: {name: type.type.name, url: type.type.url},
+        type: { name: type.type.name, url: type.type.url },
       })),
     };
   }
 
   private async request(url: string): Promise<unknown> {
-    let response: FetchResponse;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new NetworkError('PokéAPI request timed out'));
+        controller.abort();
+      }, this.timeoutMs);
+    });
+    const read = async (): Promise<unknown> => {
+      let response: FetchResponse;
+      try {
+        response = await this.fetcher(url, { signal: controller.signal });
+      } catch (error) {
+        throw new NetworkError('Unable to reach PokéAPI', error);
+      }
+      if (response.status === 404) {
+        throw new NotFoundError();
+      }
+      if (!response.ok) {
+        throw new HttpError(response.status);
+      }
+      try {
+        return await response.json();
+      } catch {
+        throw new InvalidPayloadError('PokéAPI returned invalid JSON');
+      }
+    };
     try {
-      response = await this.fetcher(url);
-    } catch (error) {
-      throw new NetworkError('Unable to reach PokéAPI', error);
-    }
-
-    if (response.status === 404) {
-      throw new NotFoundError();
-    }
-    if (!response.ok) {
-      throw new HttpError(response.status);
-    }
-
-    try {
-      return await response.json();
-    } catch {
-      throw new InvalidPayloadError('PokéAPI returned invalid JSON');
+      return await Promise.race([read(), deadline]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 }
