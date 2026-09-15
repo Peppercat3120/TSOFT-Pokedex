@@ -85,7 +85,14 @@ The selected navigation ID drives `GET https://pokeapi.co/api/v2/pokemon/{pokemo
 
 ## Libraries and boundaries
 
-The feature adds no dependencies. React Native provides lists, images, loading indicators, and pressable controls; React hooks/context provide local state and dependency injection. AsyncStorage provides local persistence, and React Navigation native-stack provides typed screen navigation with its existing safe-area/screens support dependencies. There is no HTTP wrapper, third-party state manager, or UI kit.
+React Native provides lists, images, loading indicators, and pressable controls; React hooks and Context API provide local state and dependency injection. AsyncStorage provides local persistence, and React Navigation native-stack provides typed screen navigation.
+
+The navigation implementation also uses these support dependencies:
+
+- `react-native-screens`: provides native screen primitives used by React Navigation's native-stack navigator.
+- `react-native-safe-area-context`: provides safe-area insets to keep content clear of notches and system bars on Android and iOS.
+
+As discussed with the Alejandro, React Navigation and AsyncStorage are permitted because they support the explicit navigation and persistence requirements. Both navigation support dependencies follow this criterion: they provide native navigation and safe-area handling, while application architecture, state management, and business logic are implemented in the project using React tools, use cases, and repositories. There is no HTTP wrapper, third-party state manager, or UI kit.
 
 Pending work: validate full device-level Android/iOS offline behavior and accessibility, and optionally add search or deliberate cache refresh. These features do not implement moves, evolution/species descriptions, audio, shiny toggles, favorites, background page prefetching, forced refresh, or persistent image downloads.
 
