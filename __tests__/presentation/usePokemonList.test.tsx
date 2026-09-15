@@ -1,0 +1,207 @@
+import React from 'react';
+import ReactTestRenderer, { act } from 'react-test-renderer';
+import type { PokemonListState } from '../../src/presentation/hooks/usePokemonList';
+import { usePokemonList } from '../../src/presentation/hooks/usePokemonList';
+import { PokemonListProvider } from '../../src/presentation/context/PokemonListContext';
+import type { PokemonPageUseCase } from '../../src/presentation/context/PokemonListContext';
+import { mapPokemonListDto } from '../../src/data/mappers/PokemonMapper';
+import { HttpError, NetworkError } from '../../src/domain/errors/PokemonErrors';
+import type { RepositoryResult } from '../../src/domain/repositories/PokemonRepository';
+import type { PokemonPage } from '../../src/domain/entities/Pokemon';
+import type { PokemonListDto } from '../../src/data/dtos/PokemonDtos';
+import {
+  firstPageFixture,
+  secondPageFixture,
+  finalPageFixture,
+  listPageFixture,
+} from '../data/fixtures';
+
+function result(
+  dto: PokemonListDto,
+  isStale = false,
+): RepositoryResult<PokemonPage> {
+  return {
+    data: mapPokemonListDto(dto),
+    source: isStale ? 'cache' : 'remote',
+    isStale,
+    cachedAt: 1,
+  };
+}
+
+describe('usePokemonList', () => {
+  let controller: ReturnType<typeof usePokemonList>;
+  let renderer: ReactTestRenderer.ReactTestRenderer;
+  let execute: jest.MockedFunction<PokemonPageUseCase['execute']>;
+  function Harness() {
+    controller = usePokemonList();
+    return null;
+  }
+  async function mount() {
+    await act(async () => {
+      renderer = ReactTestRenderer.create(
+        <PokemonListProvider useCase={{ execute }}>
+          <Harness />
+        </PokemonListProvider>,
+      );
+    });
+  }
+  function ready() {
+    expect(controller.state.status).toBe('ready');
+    return controller.state as Extract<PokemonListState, { status: 'ready' }>;
+  }
+  beforeEach(() => {
+    execute = jest.fn().mockResolvedValue(result(firstPageFixture));
+  });
+  afterEach(async () => {
+    if (renderer) {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('loads and appends 20 at a time, preserves rows, and stops on a final partial page', async () => {
+    execute
+      .mockResolvedValueOnce(result(firstPageFixture))
+      .mockResolvedValueOnce(result(secondPageFixture))
+      .mockResolvedValueOnce(result(finalPageFixture));
+    await mount();
+    const first = ready().items[0];
+    expect(ready().items).toHaveLength(20);
+    await act(async () => controller.loadNextPage());
+    expect(ready().items).toHaveLength(40);
+    expect(ready().items[0]).toBe(first);
+    await act(async () => controller.loadNextPage());
+    expect(ready().items).toHaveLength(43);
+    expect(ready().nextPage).toBeNull();
+    await act(async () => controller.loadNextPage());
+    expect(execute.mock.calls).toEqual([
+      [{ offset: 0, limit: 20 }],
+      [{ offset: 20, limit: 20 }],
+      [{ offset: 40, limit: 20 }],
+    ]);
+  });
+
+  it('locks immediately and preserves visible rows while loading', async () => {
+    await mount();
+    let resolve!: (value: RepositoryResult<PokemonPage>) => void;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise(done => {
+          resolve = done;
+        }),
+    );
+    await act(async () => {
+      controller.loadNextPage();
+      controller.loadNextPage();
+    });
+    expect(ready().items).toHaveLength(20);
+    expect(ready().loadMore.status).toBe('loading');
+    expect(execute).toHaveBeenCalledTimes(2);
+    await act(async () => resolve(result(secondPageFixture)));
+    expect(ready().items).toHaveLength(40);
+  });
+
+  it('retains a failed cursor, blocks automatic retries, and retries explicitly once', async () => {
+    await mount();
+    execute.mockRejectedValueOnce(new NetworkError('offline'));
+    await act(async () => controller.loadNextPage());
+    expect(ready().items).toHaveLength(20);
+    expect(ready().loadMore.status).toBe('error');
+    expect(ready().nextPage?.offset).toBe(20);
+    await act(async () => controller.loadNextPage());
+    expect(execute).toHaveBeenCalledTimes(2);
+    execute.mockResolvedValueOnce(result(secondPageFixture));
+    await act(async () => {
+      controller.retryNextPage();
+      controller.retryNextPage();
+    });
+    expect(ready().items).toHaveLength(40);
+    expect(execute.mock.calls[2]).toEqual([{ offset: 20, limit: 20 }]);
+  });
+
+  it.each([new NetworkError('offline'), new HttpError(503)])(
+    'handles initial errors and successful retry: %s',
+    async error => {
+      execute.mockRejectedValueOnce(error);
+      await mount();
+      expect(controller.state.status).toBe('error');
+      await act(async () => controller.retryInitial());
+      expect(ready().items).toHaveLength(20);
+    },
+  );
+
+  it('handles initial loading and ignores responses after unmount', async () => {
+    let resolve!: (value: RepositoryResult<PokemonPage>) => void;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise(done => {
+          resolve = done;
+        }),
+    );
+    await mount();
+    expect(controller.state.status).toBe('loading');
+    await act(async () => renderer.unmount());
+    await act(async () => resolve(result(firstPageFixture)));
+    expect(controller.state.status).toBe('loading');
+  });
+
+  it('handles empty initial results and retry', async () => {
+    execute.mockResolvedValueOnce(result(listPageFixture(0, 0, null)));
+    await mount();
+    expect(controller.state.status).toBe('empty');
+    await act(async () => controller.retryInitial());
+    expect(ready().items).toHaveLength(20);
+  });
+
+  it('deduplicates IDs in order, keeping the first instance', async () => {
+    await mount();
+    execute.mockResolvedValueOnce(
+      result({
+        ...secondPageFixture,
+        results: [firstPageFixture.results[0], ...secondPageFixture.results],
+      }),
+    );
+    await act(async () => controller.loadNextPage());
+    expect(ready().items).toHaveLength(40);
+    expect(ready().items.map(item => item.id)).toEqual(
+      Array.from({ length: 40 }, (_, i) => i + 1),
+    );
+  });
+
+  it.each([
+    listPageFixture(20, 0, 40),
+    { ...firstPageFixture, next: secondPageFixture.next },
+    { ...secondPageFixture, next: firstPageFixture.next },
+  ])('stops empty, duplicate-only, or non-advancing pages', async dto => {
+    await mount();
+    execute.mockResolvedValueOnce(result(dto));
+    await act(async () => controller.loadNextPage());
+    expect(ready().nextPage).toBeNull();
+    await act(async () => controller.loadNextPage());
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the next offset but always requests limit 20', async () => {
+    execute.mockResolvedValueOnce(
+      result({
+        ...firstPageFixture,
+        next: 'https://pokeapi.co/api/v2/pokemon?offset=20&limit=99',
+      }),
+    );
+    await mount();
+    await act(async () => controller.loadNextPage());
+    expect(execute).toHaveBeenLastCalledWith({ offset: 20, limit: 20 });
+  });
+
+  it('retains stale metadata across pages without labeling fresh cache as stale', async () => {
+    execute
+      .mockResolvedValueOnce({ ...result(firstPageFixture), source: 'cache' })
+      .mockResolvedValueOnce(result(secondPageFixture, true))
+      .mockResolvedValueOnce(result(finalPageFixture));
+    await mount();
+    expect(ready().hasStaleData).toBe(false);
+    await act(async () => controller.loadNextPage());
+    expect(ready().hasStaleData).toBe(true);
+    await act(async () => controller.loadNextPage());
+    expect(ready().hasStaleData).toBe(true);
+  });
+});

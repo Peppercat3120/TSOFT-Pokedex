@@ -1,97 +1,92 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# TSOFT Pokédex
 
-# Getting Started
+React Native CLI application written in strict TypeScript. The initial screen displays 20 Pokémon and appends up to 20 more as the user scrolls. Selecting a row opens a scrollable profile with artwork, types, abilities, base statistics, height, weight, and base experience.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Install and run
 
-## Step 1: Start Metro
-
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
-
-To start the Metro dev server, run the following command from the root of your React Native project:
+Set up the [React Native development environment](https://reactnative.dev/docs/set-up-your-environment), including Android SDK/JDK for Android or Xcode and CocoaPods for iOS. Use Node.js 22.11 or newer.
 
 ```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
+npm ci
 ```
 
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
-```
-
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+For iOS, install Ruby dependencies from the repository root, then install pods from `ios`:
 
 ```sh
 bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
+cd ios
 bundle exec pod install
+cd ..
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+Start Metro in one terminal:
 
 ```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+npm start
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+Run on an emulator, simulator, or connected device in another terminal:
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+```sh
+npm run android
+# Or on macOS:
+npm run ios
+```
 
-## Step 3: Modify your app
+## Verification
 
-Now that you have successfully run the app, let's make changes!
+```sh
+npx tsc --noEmit
+npm run lint
+npm test -- --runInBand --no-watchman
+```
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+`--no-watchman` avoids requiring the local Watchman service. Tests use injected use cases, mocked native storage, and fixture responses; they do not call the live API.
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+## Architecture and endpoint mapping
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+- `src/domain`: immutable entities, repository contracts, validation, and use cases. `GetPokemonPage` validates the page request without knowing fetch or storage.
+- `src/data`: fetch-based PokéAPI access, runtime DTO validation, mapping, and an AsyncStorage-backed cached repository.
+- `src/presentation`: typed navigation, dependency context, `usePokemonList`, and accessible list rows. Screens never access network or storage directly.
+- `App.tsx`: composition boundary; constructs one shared repository and the list/detail use cases once. Typed providers allow presentation hooks and tests to receive each use-case contract. Tests inject both dependencies to avoid live API or storage access.
 
-## Congratulations! :tada:
+Initial request: `GET https://pokeapi.co/api/v2/pokemon?offset=0&limit=20`. The [list endpoint](https://pokeapi.co/docs/v2/#resource-lists-pagination-section) returns `count`, `next`, `previous`, and `results` containing `name` and `url`. The mapper preserves response order and extracts the numeric ID from each resource URL. Names are capitalized only when rendered. Total count is preserved, not hard-coded.
 
-You've successfully run and modified your React Native App. :partying_face:
+Images are not included in the list response. The mapper derives `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{id}.png` from the official [PokéAPI sprite repository](https://github.com/PokeAPI/sprites). This avoids 20 detail requests per page, but depends on that repository's URL convention. Image requests are separate from the single JSON page request, and failures show a non-blocking fallback.
 
-### Now what?
+## Pagination and failure behavior
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+- The mapped `next` offset drives each subsequent request, always with `limit=20`.
+- `FlatList` requests another page near the end (`onEndReachedThreshold=0.5`), only after a user drag. One drag authorizes one request, preventing mount-time loading and automatic request chains after appending.
+- A synchronous request lock prevents duplicate requests. Pages append in order and duplicate IDs keep their first occurrence. Existing rows remain visible and usable during loading or errors.
+- A failed page retains its cursor and requires explicit footer retry; scrolling does not repeatedly retry a failing request.
+- Null next links, empty/duplicate-only pages, and non-advancing offsets stop pagination safely. A final page may contain fewer than 20 records.
+- `FlatList` virtualizes rendering; accumulated records remain in memory while the screen is mounted. Returning from detail retains the mounted list and scroll position.
 
-# Troubleshooting
+## Persistence and partial offline support
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+AsyncStorage stores validated DTOs in versioned keys isolated by `offset:limit`, with a 24-hour cache-first TTL. Fresh cache avoids a JSON request. Expired cache is refreshed and can fall back to stale data for connectivity failures or HTTP 5xx errors. Invalid cache is ignored; cache writes are best-effort and never hide valid remote data.
 
-# Learn More
+Each visited page is independently available from cache. Startup loads only the first page, not all saved pages. If a later uncached page cannot load offline, earlier rows remain visible with a footer retry action. Any stale fallback displays a saved-data warning; fresh cache does not imply offline status.
 
-To learn more about React Native, take a look at the following resources:
+Only JSON is explicitly persisted. Images may benefit from platform caching, but persistent offline images are not guaranteed. Existing cached DTOs need no migration because image URLs are generated during mapping.
 
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+## Detail screen
+
+The selected navigation ID drives `GET https://pokeapi.co/api/v2/pokemon/{pokemonId}` through `usePokemonDetail`, `GetPokemonById`, and the shared cached repository. The existing DTO guard and mapper preserve the endpoint data; no schema or cache migration is needed.
+
+- Artwork uses `sprites.other['official-artwork'].front_default`, then `sprites.front_default` if missing or loading fails. Neither image being available shows a non-blocking fallback. Image URLs come from the response, not an additional endpoint request.
+- Types and abilities are displayed in slot order, with hidden abilities annotated. Names are humanized only for presentation.
+- Height is converted from decimetres to metres and weight from hectograms to kilograms, both with one decimal. Nullable base experience shows “Not available”; zero remains visible.
+- Statistics show exact numeric values in HP/Attack/Defense/Special Attack/Special Defense/Speed order, additional statistics afterward, and a total. Empty types, abilities, or statistics receive section-specific feedback.
+- Loading and retryable connectivity/service/payload errors have explicit feedback. HTTP 404 displays “Pokémon not found” with a back action; invalid IDs do not trigger futile retries. Old responses are ignored on ID changes or unmount.
+- Detail DTOs are cached separately by ID with the same 24-hour TTL and stale fallback policy. Cached list rows do not imply a cached detail: opening an unvisited Pokémon offline can still fail. Images are not explicitly persisted.
+- Back navigation returns to the mounted list without replacing its loaded pages or scroll position. The detail screen uses wrapping layouts, scalable text, semantic section headings, and decorative artwork for screen readers.
+
+## Libraries and boundaries
+
+The feature adds no dependencies. React Native provides lists, images, loading indicators, and pressable controls; React hooks/context provide local state and dependency injection. AsyncStorage provides local persistence, and React Navigation native-stack provides typed screen navigation with its existing safe-area/screens support dependencies. There is no HTTP wrapper, third-party state manager, or UI kit.
+
+Pending work: validate full device-level Android/iOS offline behavior and accessibility, and optionally add search or deliberate cache refresh. These features do not implement moves, evolution/species descriptions, audio, shiny toggles, favorites, background page prefetching, forced refresh, or persistent image downloads.
+
+Manual acceptance checks on both platforms: initial 20 rows; scrolling to 40 and beyond without losing position; fast-scroll request guarding; navigation/back; initial offline error; cached pages offline; failed next-page retry; image failures; narrow screens, large text, and screen readers.
