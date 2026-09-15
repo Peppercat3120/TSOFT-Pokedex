@@ -33,10 +33,10 @@ describe('AsyncStoragePokemonLocalDataSource', () => {
     expect((await source.getPokemonById(1))?.data.name).toBe('bulbasaur');
     expect((await source.getPokemonById(2))?.data.name).toBe('ivysaur');
     expect(await source.getPokemonById(3)).toBeNull();
-    const key = '@tsoft-pokedex/v1/pokemon/detail/2';
+    const key = '@tsoft-pokedex/v2/pokemon/detail/2';
     storage.values.set(
       key,
-      JSON.stringify({ version: 1, cachedAt: 2, data: { id: 2 } }),
+      JSON.stringify({ version: 2, cachedAt: 2, data: { id: 2 } }),
     );
     expect(await source.getPokemonById(2)).toBeNull();
     storage.values.set(
@@ -67,15 +67,15 @@ describe('AsyncStoragePokemonLocalDataSource', () => {
       data: pokemonDetailFixture,
     });
     expect([...storage.values.keys()]).toEqual([
-      '@tsoft-pokedex/v1/pokemon/list/0:20',
-      '@tsoft-pokedex/v1/pokemon/detail/1',
+      '@tsoft-pokedex/v2/pokemon/list/0:20',
+      '@tsoft-pokedex/v2/pokemon/detail/1',
     ]);
   });
 
   it('ignores malformed, old-version, and invalid DTO cache records', async () => {
     const storage = new MemoryStorage();
     const source = new AsyncStoragePokemonLocalDataSource(storage);
-    const key = '@tsoft-pokedex/v1/pokemon/list/0:20';
+    const key = '@tsoft-pokedex/v2/pokemon/list/0:20';
 
     storage.values.set(key, '{broken');
     await expect(source.getPokemonPage(0, 20)).resolves.toBeNull();
@@ -88,7 +88,7 @@ describe('AsyncStoragePokemonLocalDataSource', () => {
 
     storage.values.set(
       key,
-      JSON.stringify({ version: 1, cachedAt: 100, data: { count: 'many' } }),
+      JSON.stringify({ version: 2, cachedAt: 100, data: { count: 'many' } }),
     );
     await expect(source.getPokemonPage(0, 20)).resolves.toBeNull();
   });

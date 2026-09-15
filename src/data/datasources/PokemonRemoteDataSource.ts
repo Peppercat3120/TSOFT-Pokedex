@@ -47,7 +47,35 @@ export class FetchPokemonRemoteDataSource implements PokemonRemoteDataSource {
   async getPokemonById(id: number): Promise<PokemonDetailDto> {
     const payload = await this.request(`${this.baseUrl}/pokemon/${id}`);
     assertPokemonDetailDto(payload);
-    return payload;
+    return {
+      id: payload.id,
+      name: payload.name,
+      base_experience: payload.base_experience,
+      height: payload.height,
+      weight: payload.weight,
+      abilities: payload.abilities.map(ability => ({
+        ability: {name: ability.ability.name, url: ability.ability.url},
+        is_hidden: ability.is_hidden,
+        slot: ability.slot,
+      })),
+      sprites: {
+        front_default: payload.sprites.front_default,
+        other: {
+          'official-artwork': {
+            front_default:
+              payload.sprites.other['official-artwork'].front_default,
+          },
+        },
+      },
+      stats: payload.stats.map(stat => ({
+        base_stat: stat.base_stat,
+        stat: {name: stat.stat.name, url: stat.stat.url},
+      })),
+      types: payload.types.map(type => ({
+        slot: type.slot,
+        type: {name: type.type.name, url: type.type.url},
+      })),
+    };
   }
 
   private async request(url: string): Promise<unknown> {

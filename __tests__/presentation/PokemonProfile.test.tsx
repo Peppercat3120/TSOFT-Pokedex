@@ -93,7 +93,6 @@ describe('PokemonProfile', () => {
       stats: names.map((name, i) => ({
         stat: { id: i + 1, name },
         baseStat: i,
-        effort: 0,
       })),
     });
     const labels = texts().filter(value =>

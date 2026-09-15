@@ -46,7 +46,7 @@ describe('Pokémon mappers', () => {
     expect(page.previousPage).toBeNull();
   });
 
-  it('maps complete detail data and strips transport-only fields', () => {
+  it('maps the detail fields used by the profile', () => {
     const detail = mapPokemonDetailDto(pokemonDetailFixture);
 
     expect(detail).toMatchObject({
@@ -56,23 +56,17 @@ describe('Pokémon mappers', () => {
         { ability: { id: 65, name: 'overgrow' }, isHidden: false, slot: 1 },
       ],
       types: [{ type: { id: 12, name: 'grass' }, slot: 1 }],
-      stats: [{ stat: { id: 1, name: 'hp' }, baseStat: 45, effort: 0 }],
+      stats: [{ stat: { id: 1, name: 'hp' }, baseStat: 45 }],
       baseExperience: 64,
       heightDecimetres: 7,
       weightHectograms: 69,
-      species: { id: 1, name: 'bulbasaur' },
       sprites: {
         frontDefault: 'https://sprites.example/front.png',
         officialArtwork: {
           frontDefault: 'https://sprites.example/artwork.png',
-          frontShiny: null,
         },
       },
     });
-    expect(detail.pastAbilities[0].abilities[0].ability).toBeNull();
-    expect(detail.pastStats[0].stats[0].stat.id).toBe(1);
-    expect(detail.moves[0].versionGroupDetails[0].order).toBeNull();
-    expect('locationAreaEncounters' in detail).toBe(false);
   });
 
   it('preserves nullable detail attributes and hidden ability flags', () => {
@@ -86,7 +80,7 @@ describe('Pokémon mappers', () => {
         ...pokemonDetailFixture.sprites,
         front_default: null,
         other: {
-          'official-artwork': { front_default: null, front_shiny: null },
+          'official-artwork': {front_default: null},
         },
       },
     });

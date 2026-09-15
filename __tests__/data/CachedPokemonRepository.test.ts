@@ -170,7 +170,9 @@ describe('CachedPokemonRepository', () => {
       isStale: false,
       cachedAt: NOW,
     });
-    expect(result.data.species).toEqual({ id: 1, name: 'bulbasaur' });
+    expect(result.data.sprites.officialArtwork.frontDefault).toBe(
+      'https://sprites.example/artwork.png',
+    );
     expect(local.setPokemonById).toHaveBeenCalledWith(1, {
       cachedAt: NOW,
       data: pokemonDetailFixture,

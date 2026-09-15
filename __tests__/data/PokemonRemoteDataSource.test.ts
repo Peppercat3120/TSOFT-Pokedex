@@ -27,14 +27,32 @@ describe('FetchPokemonRemoteDataSource', () => {
     );
   });
 
-  it('retrieves and validates details', async () => {
+  it('projects raw detail payloads to the fields used by the profile', async () => {
+    const rawPayload = {
+      ...pokemonDetailFixture,
+      order: 1,
+      cries: {latest: 'https://cries.example/latest.ogg', legacy: null},
+      stats: [
+        {...pokemonDetailFixture.stats[0], effort: 0},
+      ],
+      sprites: {
+        ...pokemonDetailFixture.sprites,
+        front_shiny: 'https://sprites.example/front-shiny.png',
+        other: {
+          'official-artwork': {
+            ...pokemonDetailFixture.sprites.other['official-artwork'],
+            front_shiny: 'https://sprites.example/artwork-shiny.png',
+          },
+        },
+      },
+    };
     const source = new FetchPokemonRemoteDataSource(undefined, async () => ({
       ok: true,
       status: 200,
-      json: async () => pokemonDetailFixture,
+      json: async () => rawPayload,
     }));
 
-    await expect(source.getPokemonById(1)).resolves.toBe(pokemonDetailFixture);
+    await expect(source.getPokemonById(1)).resolves.toEqual(pokemonDetailFixture);
   });
 
   it.each([

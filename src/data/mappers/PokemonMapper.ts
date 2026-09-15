@@ -1,30 +1,20 @@
 import type {
   NamedResource,
   PokemonAbility,
-  PokemonAbilityPast,
   PokemonDetail,
-  PokemonHeldItem,
-  PokemonMove,
   PokemonPage,
   PokemonPageRequest,
   PokemonStat,
-  PokemonStatPast,
   PokemonType,
-  PokemonTypePast,
 } from '../../domain/entities/Pokemon';
 import { InvalidPayloadError } from '../../domain/errors/PokemonErrors';
 import type {
   NamedApiResourceDto,
   PokemonAbilityDto,
-  PokemonAbilityPastDto,
   PokemonDetailDto,
-  PokemonHeldItemDto,
   PokemonListDto,
-  PokemonMoveDto,
   PokemonStatDto,
-  PokemonStatPastDto,
   PokemonTypeDto,
-  PokemonTypePastDto,
 } from '../dtos/PokemonDtos';
 
 const URL_BASE = 'https://pokeapi.co';
@@ -80,64 +70,15 @@ function mapAbility(dto: PokemonAbilityDto): PokemonAbility {
   };
 }
 
-function mapHeldItem(dto: PokemonHeldItemDto): PokemonHeldItem {
-  return {
-    item: mapNamedResource(dto.item),
-    versionDetails: dto.version_details.map(detail => ({
-      rarity: detail.rarity,
-      version: mapNamedResource(detail.version),
-    })),
-  };
-}
-
-function mapMove(dto: PokemonMoveDto): PokemonMove {
-  return {
-    move: mapNamedResource(dto.move),
-    versionGroupDetails: dto.version_group_details.map(detail => ({
-      levelLearnedAt: detail.level_learned_at,
-      moveLearnMethod: mapNamedResource(detail.move_learn_method),
-      order: detail.order,
-      versionGroup: mapNamedResource(detail.version_group),
-    })),
-  };
-}
-
 function mapStat(dto: PokemonStatDto): PokemonStat {
   return {
     baseStat: dto.base_stat,
-    effort: dto.effort,
     stat: mapNamedResource(dto.stat),
   };
 }
 
 function mapType(dto: PokemonTypeDto): PokemonType {
   return { slot: dto.slot, type: mapNamedResource(dto.type) };
-}
-
-function mapTypePast(dto: PokemonTypePastDto): PokemonTypePast {
-  return {
-    generation: mapNamedResource(dto.generation),
-    types: dto.types.map(mapType),
-  };
-}
-
-function mapAbilityPast(dto: PokemonAbilityPastDto): PokemonAbilityPast {
-  return {
-    generation: mapNamedResource(dto.generation),
-    abilities: dto.abilities.map(ability => ({
-      ability:
-        ability.ability === null ? null : mapNamedResource(ability.ability),
-      isHidden: ability.is_hidden,
-      slot: ability.slot,
-    })),
-  };
-}
-
-function mapStatPast(dto: PokemonStatPastDto): PokemonStatPast {
-  return {
-    generation: mapNamedResource(dto.generation),
-    stats: dto.stats.map(mapStat),
-  };
 }
 
 export function mapPokemonListDto(dto: PokemonListDto): PokemonPage {
@@ -163,36 +104,14 @@ export function mapPokemonDetailDto(dto: PokemonDetailDto): PokemonDetail {
     name: dto.name,
     baseExperience: dto.base_experience,
     heightDecimetres: dto.height,
-    isDefault: dto.is_default,
-    order: dto.order,
     weightHectograms: dto.weight,
     abilities: dto.abilities.map(mapAbility),
-    forms: dto.forms.map(mapNamedResource),
-    gameIndices: dto.game_indices.map(gameIndex => ({
-      gameIndex: gameIndex.game_index,
-      version: mapNamedResource(gameIndex.version),
-    })),
-    heldItems: dto.held_items.map(mapHeldItem),
-    moves: dto.moves.map(mapMove),
-    pastTypes: dto.past_types.map(mapTypePast),
-    pastAbilities: dto.past_abilities.map(mapAbilityPast),
-    pastStats: dto.past_stats.map(mapStatPast),
     sprites: {
-      backDefault: dto.sprites.back_default,
-      backFemale: dto.sprites.back_female,
-      backShiny: dto.sprites.back_shiny,
-      backShinyFemale: dto.sprites.back_shiny_female,
       frontDefault: dto.sprites.front_default,
-      frontFemale: dto.sprites.front_female,
-      frontShiny: dto.sprites.front_shiny,
-      frontShinyFemale: dto.sprites.front_shiny_female,
       officialArtwork: {
         frontDefault: artwork.front_default,
-        frontShiny: artwork.front_shiny,
       },
     },
-    cries: { latest: dto.cries.latest, legacy: dto.cries.legacy },
-    species: mapNamedResource(dto.species),
     stats: dto.stats.map(mapStat),
     types: dto.types.map(mapType),
   };

@@ -1,15 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type {
-  PokemonDetailDto,
-  PokemonListDto,
-} from '../dtos/PokemonDtos';
+import type { PokemonDetailDto, PokemonListDto } from '../dtos/PokemonDtos';
 import {
   assertPokemonDetailDto,
   assertPokemonListDto,
 } from '../validation/PokemonDtoGuards';
 
-const CACHE_VERSION = 1;
-const CACHE_PREFIX = '@tsoft-pokedex/v1/pokemon';
+const CACHE_VERSION = 2;
+const CACHE_PREFIX = '@tsoft-pokedex/v2/pokemon';
 
 export interface CacheEntry<T> {
   readonly cachedAt: number;
@@ -114,7 +111,7 @@ export class AsyncStoragePokemonLocalDataSource
         return null;
       }
       assertData(envelope.data);
-      return {cachedAt: envelope.cachedAt, data: envelope.data};
+      return { cachedAt: envelope.cachedAt, data: envelope.data };
     } catch {
       return null;
     }
@@ -123,7 +120,7 @@ export class AsyncStoragePokemonLocalDataSource
   private write<T>(key: string, entry: CacheEntry<T>): Promise<void> {
     return this.storage.setItem(
       key,
-      JSON.stringify({version: CACHE_VERSION, ...entry}),
+      JSON.stringify({ version: CACHE_VERSION, ...entry }),
     );
   }
 

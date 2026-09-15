@@ -94,73 +94,18 @@ export const pokemonDetailFixture: PokemonDetailDto = {
   name: 'bulbasaur',
   base_experience: 64,
   height: 7,
-  is_default: true,
-  order: 1,
   weight: 69,
   abilities: [
     { ability: resource('overgrow', 'ability/65/'), is_hidden: false, slot: 1 },
   ],
-  forms: [resource('bulbasaur', 'pokemon-form/1/')],
-  game_indices: [{ game_index: 1, version: resource('red', 'version/1/') }],
-  held_items: [
-    {
-      item: resource('miracle-seed', 'item/130/'),
-      version_details: [{ rarity: 5, version: resource('ruby', 'version/7/') }],
-    },
-  ],
-  location_area_encounters: '/api/v2/pokemon/1/encounters',
-  moves: [
-    {
-      move: resource('razor-wind', 'move/13/'),
-      version_group_details: [
-        {
-          level_learned_at: 0,
-          version_group: resource('gold-silver', 'version-group/3/'),
-          move_learn_method: resource('egg', 'move-learn-method/2/'),
-          order: null,
-        },
-      ],
-    },
-  ],
-  past_types: [
-    {
-      generation: resource('generation-v', 'generation/5/'),
-      types: [{ slot: 1, type: resource('grass', 'type/12/') }],
-    },
-  ],
-  past_abilities: [
-    {
-      generation: resource('generation-iv', 'generation/4/'),
-      abilities: [{ ability: null, is_hidden: true, slot: 3 }],
-    },
-  ],
-  past_stats: [
-    {
-      generation: resource('generation-i', 'generation/1/'),
-      stats: [{ base_stat: 45, effort: 0, stat: resource('hp', 'stat/1/') }],
-    },
-  ],
   sprites: {
-    back_default: 'https://sprites.example/back.png',
-    back_female: null,
-    back_shiny: 'https://sprites.example/back-shiny.png',
-    back_shiny_female: null,
     front_default: 'https://sprites.example/front.png',
-    front_female: null,
-    front_shiny: 'https://sprites.example/front-shiny.png',
-    front_shiny_female: null,
     other: {
       'official-artwork': {
         front_default: 'https://sprites.example/artwork.png',
-        front_shiny: null,
       },
     },
   },
-  cries: {
-    latest: 'https://cries.example/latest.ogg',
-    legacy: null,
-  },
-  species: resource('bulbasaur', 'pokemon-species/1/'),
-  stats: [{ base_stat: 45, effort: 0, stat: resource('hp', 'stat/1/') }],
+  stats: [{base_stat: 45, stat: resource('hp', 'stat/1/')}],
   types: [{ slot: 1, type: resource('grass', 'type/12/') }],
 };
