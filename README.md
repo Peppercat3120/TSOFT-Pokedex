@@ -117,4 +117,22 @@ Device acceptance checks on Android and iOS:
 - Cached and uncached pages and details while offline.
 - Narrow screens, large text, and screen-reader navigation.
 
-Full device-level offline and accessibility validation remains pending.
+## Pending work, trade-offs, and future improvements
+
+### Pending validation
+
+Full device-level offline and accessibility validation on Android and iOS remains pending.
+
+### Known concerns and trade-offs
+
+- **Unexpected scheduler rejection can stop recovery:** An unexpected attempt callback rejection clears the running flag but skips rescheduling and leaves an unhandled detached promise rejection. Current callbacks catch expected request failures, so this is a robustness gap in [useBoundedRecovery.ts](src/presentation/hooks/useBoundedRecovery.ts).
+- **Reducer mirrors increase maintenance complexity:** [usePokemonList.ts](src/presentation/hooks/usePokemonList.ts) and [usePokemonDetail.ts](src/presentation/hooks/usePokemonDetail.ts) apply each transition to a synchronous ref and dispatch it to React for asynchronous coordination. Both state representations must stay synchronized; no current divergence bug was found.
+- Offline access depends on previously cached data, and offline image availability is not guaranteed because images are not explicitly persisted.
+
+### Future enhancements
+
+- Add a search bar to the main Pokémon list.
+- Add main-list filters by generation, type, and region.
+- Replace static images with animated sprites.
+- Use Pokémon type-based color schemes with readable contrast.
+- Add a control to play each Pokémon's cry.
