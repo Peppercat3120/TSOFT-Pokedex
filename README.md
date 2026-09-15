@@ -1,4 +1,4 @@
-# TSOFT Pokédex
+# Pokédex
 
 React Native CLI application built with strict TypeScript for the TSOFT Pokédex challenge. Pokémon data comes from PokéAPI.
 
