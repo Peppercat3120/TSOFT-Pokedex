@@ -4,8 +4,13 @@ import {
   useAutomaticRecovery,
   type RecoveryReason,
 } from './useRecovery';
-import type { PokemonPage } from '../../domain/entities/Pokemon';
-import type { RepositoryResult } from '../../domain/repositories/PokemonRepository';
+import {
+  appendPokemonPage,
+  hasAutomaticPageRecovery,
+  pagesToRefresh,
+  snapshotPokemonPages,
+  type PokemonListPage,
+} from './pokemonListPages';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   PokemonPageRequest,
@@ -45,16 +50,7 @@ export function usePokemonList(focused = true) {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [autoPending, setAutoPending] = useState(false);
-  const pages = useRef(
-    new Map<
-      number,
-      {
-        request: PokemonPageRequest;
-        result: RepositoryResult<PokemonPage>;
-        auto: boolean;
-      }
-    >(),
-  );
+  const pages = useRef(new Map<number, PokemonListPage>());
   const paginationAuto = useRef(false);
   const queuedRefresh = useRef(false);
   const refreshAction = useRef<() => Promise<void | boolean>>(async () => {});
@@ -110,23 +106,14 @@ export function usePokemonList(focused = true) {
           auto: result.isStale,
         });
         paginationAuto.current = false;
-        setAutoPending([...pages.current.values()].some(page => page.auto));
         const existing =
           !initial && previous.status === 'ready' ? previous.items : [];
-        const ids = new Set(existing.map(item => item.id));
-        const added = result.data.items.filter(item => {
-          if (ids.has(item.id)) {
-            return false;
-          }
-          ids.add(item.id);
-          return true;
-        });
-        const items = [...existing, ...added];
-        const next = result.data.nextPage;
-        const nextPage =
-          added.length > 0 && next !== null && next.offset > request.offset
-            ? { offset: next.offset, limit: 20 }
-            : null;
+        const { items, nextPage } = appendPokemonPage(
+          existing,
+          request,
+          result.data,
+        );
+        setAutoPending(hasAutomaticPageRecovery(pages.current));
         publish(
           items.length === 0
             ? { status: 'empty' }
@@ -134,9 +121,7 @@ export function usePokemonList(focused = true) {
                 status: 'ready',
                 items,
                 nextPage,
-                hasStaleData: [...pages.current.values()].some(
-                  page => page.result.isStale,
-                ),
+                hasStaleData: snapshotPokemonPages(pages.current).hasStaleData,
                 loadMore: { status: 'idle' },
               },
         );
@@ -146,8 +131,7 @@ export function usePokemonList(focused = true) {
         }
         paginationAuto.current = canRecoverAutomatically(error);
         setAutoPending(
-          paginationAuto.current ||
-            [...pages.current.values()].some(page => page.auto),
+          paginationAuto.current || hasAutomaticPageRecovery(pages.current),
         );
         const { message, canRetry } = mapPokemonError(
           error,
@@ -200,7 +184,7 @@ export function usePokemonList(focused = true) {
       const previous = stateRef.current;
       if (previous.status !== 'ready') {
         if (
-          ((all || [...pages.current.values()].some(page => page.auto)) &&
+          ((all || hasAutomaticPageRecovery(pages.current)) &&
             previous.status === 'empty') ||
           (previous.status === 'error' &&
             previous.canRetry &&
@@ -216,16 +200,17 @@ export function usePokemonList(focused = true) {
       const token = generation.current;
       let retryable = false;
       try {
-        for (const [offset, page] of pages.current) {
+        for (const [offset, page] of pagesToRefresh(
+          pages.current,
+          all,
+          explicit,
+        )) {
           if (
             !focusedRef.current ||
             AppState.currentState === 'background' ||
             AppState.currentState === 'inactive'
           ) {
             break;
-          }
-          if (!all && !(explicit ? page.result.isStale : page.auto)) {
-            continue;
           }
           try {
             const result = await useCase.execute(page.request, {
@@ -256,39 +241,20 @@ export function usePokemonList(focused = true) {
             return;
           }
         }
-        const ids = new Set<number>();
-        const items = [...pages.current.values()]
-          .sort((a, b) => a.request.offset - b.request.offset)
-          .flatMap(page => page.result.data.items)
-          .filter(item => {
-            if (ids.has(item.id)) {
-              return false;
-            }
-            ids.add(item.id);
-            return true;
-          });
-        const hasStaleData = [...pages.current.values()].some(
-          page => page.result.isStale,
-        );
-        const last = [...pages.current.values()].sort(
-          (a, b) => b.request.offset - a.request.offset,
-        )[0];
-        const next = last?.result.data.nextPage;
+        const snapshot = snapshotPokemonPages(pages.current);
         publish({
           ...previous,
-          items,
-          hasStaleData,
+          items: snapshot.items,
+          hasStaleData: snapshot.hasStaleData,
           nextPage:
             previous.loadMore.status === 'error'
               ? previous.nextPage
-              : next && next.offset > last.request.offset
-              ? { offset: next.offset, limit: 20 }
-              : null,
+              : snapshot.nextPage,
         });
         setAutoPending(
           retryable ||
             paginationAuto.current ||
-            [...pages.current.values()].some(page => page.auto),
+            hasAutomaticPageRecovery(pages.current),
         );
       } finally {
         if (mounted.current && token === generation.current) {
