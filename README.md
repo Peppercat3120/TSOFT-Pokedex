@@ -33,6 +33,14 @@ npm run android
 npm run ios
 ```
 
+### iOS scene lifecycle
+
+Xcode 27's SDK requires the UIKit scene lifecycle; apps using the legacy lifecycle fail to launch. `ios/TSOFTPokedex/AppDelegate.swift` includes a `SceneDelegate` that creates the window and starts React Native, registered through `UIApplicationSceneManifest` in `ios/TSOFTPokedex/Info.plist`. See [Apple's migration guide](https://developer.apple.com/documentation/uikit/transitioning-to-the-uikit-scene-based-life-cycle).
+
+`pod install` preserves this fix. If the `ios/` folder is recreated from a template, preserve or reapply both changes unless the template already provides scene lifecycle support.
+
+According to the React Native Changelog, React Native is addressing the error. Its 0.88 release candidate changelog includes “Add SceneDelegate lifecycle support". Therefore manual fix will not be necessary when React Native gets an update featuring this change.
+
 ## Verification
 
 ```sh
