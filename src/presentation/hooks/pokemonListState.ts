@@ -5,7 +5,7 @@ import type {
 } from '../../domain/entities/Pokemon';
 import type { RepositoryResult } from '../../domain/repositories/PokemonRepository';
 import type { PokemonErrorFeedback } from '../errors/mapPokemonError';
-import type { PokemonListPage } from './pokemonListPages';
+import { snapshotPokemonPages, type PokemonListPage } from './pokemonListPages';
 
 export type LoadMoreState =
   | { readonly status: 'idle' | 'loading' }
@@ -120,8 +120,26 @@ export function pokemonListReducer(
       };
     case 'refresh-start':
       return { ...model, refreshing: true, refreshError: null };
-    case 'refresh-end':
-      return { ...model, refreshing: false };
+    case 'refresh-end': {
+      const next = snapshotPokemonPages(model.pages).nextPage;
+      const failed = model.failedRequest;
+      const obsolete =
+        model.status === 'loaded' &&
+        model.loadMore.status === 'error' &&
+        (next === null ||
+          failed === null ||
+          failed.offset !== next.offset ||
+          failed.limit !== next.limit);
+      return obsolete
+        ? {
+            ...model,
+            refreshing: false,
+            failedRequest: null,
+            requestAuto: false,
+            loadMore: { status: 'idle' },
+          }
+        : { ...model, refreshing: false };
+    }
     case 'page-success':
       return {
         ...model,

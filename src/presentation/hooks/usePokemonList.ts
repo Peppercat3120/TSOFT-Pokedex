@@ -58,15 +58,16 @@ export function usePokemonList(focused = true) {
       }
       const previous = current.current;
       const snapshot = snapshotPokemonPages(previous.pages);
-      const request = initial
-        ? { offset: 0, limit: 20 }
-        : previous.failedRequest ?? snapshot.nextPage;
+      const request = initial ? { offset: 0, limit: 20 } : snapshot.nextPage;
       if (
         !initial &&
         (previous.status !== 'loaded' ||
           request === null ||
           (previous.loadMore.status === 'error' &&
-            (!retry || !previous.loadMore.canRetry)))
+            (!retry ||
+              !previous.loadMore.canRetry ||
+              previous.failedRequest?.offset !== request.offset ||
+              previous.failedRequest?.limit !== request.limit)))
       ) {
         return 'attempted';
       }
@@ -272,7 +273,6 @@ export function usePokemonList(focused = true) {
       : {
           status: 'ready',
           ...snapshot,
-          nextPage: model.failedRequest ?? snapshot.nextPage,
           loadMore: model.loadMore,
         };
   return {

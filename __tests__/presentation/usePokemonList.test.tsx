@@ -129,6 +129,166 @@ describe('usePokemonList', () => {
       jest.useRealTimers();
     }
   });
+  describe.each(['automatic', 'footer', 'updates', 'all'] as const)(
+    '%s pagination reconciliation',
+    mode => {
+      async function recover() {
+        await act(async () => {
+          if (mode === 'automatic') {
+            jest.advanceTimersByTime(2000);
+          } else if (mode === 'footer') {
+            controller.retryNextPage();
+          } else if (mode === 'updates') {
+            await controller.retryUpdates();
+          } else {
+            await controller.refresh();
+          }
+        });
+      }
+      beforeEach(() => jest.useFakeTimers());
+      afterEach(() => jest.useRealTimers());
+
+      it.each(['empty', 'duplicate', 'null-next', 'non-advancing'])(
+        'discards a failed cursor after refresh stops on %s data',
+        async kind => {
+          execute
+            .mockResolvedValueOnce(result(firstPageFixture))
+            .mockResolvedValueOnce(result(secondPageFixture, true))
+            .mockRejectedValueOnce(new NetworkError('offline'));
+          await mount();
+          await act(async () => controller.loadNextPage());
+          await act(async () => controller.loadNextPage());
+          const stopped = {
+            ...secondPageFixture,
+            results:
+              kind === 'empty'
+                ? []
+                : kind === 'duplicate'
+                ? firstPageFixture.results
+                : secondPageFixture.results,
+            next:
+              kind === 'null-next'
+                ? null
+                : kind === 'non-advancing'
+                ? 'https://pokeapi.co/api/v2/pokemon?offset=20&limit=20'
+                : secondPageFixture.next,
+          };
+          if (mode === 'all') {
+            execute.mockResolvedValueOnce(result(firstPageFixture));
+          }
+          execute.mockResolvedValueOnce(result(stopped));
+          await recover();
+          const calls = mode === 'all' ? 5 : 4;
+          expect(execute).toHaveBeenCalledTimes(calls);
+          expect(ready().nextPage).toBeNull();
+          expect(ready().loadMore.status).toBe('idle');
+          expect(ready().items).toHaveLength(
+            kind === 'empty' || kind === 'duplicate' ? 20 : 40,
+          );
+          expect(ready().hasStaleData).toBe(false);
+          expect(controller.refreshError).toBeNull();
+          await act(async () => controller.retryNextPage());
+          await act(async () => controller.loadNextPage());
+          await act(async () => jest.advanceTimersByTime(60000));
+          expect(execute).toHaveBeenCalledTimes(calls);
+          expect(controller.recoveryExhausted).toBe(false);
+        },
+      );
+
+      it('discards a changed cursor and loads its replacement only on ordinary pagination', async () => {
+        execute
+          .mockResolvedValueOnce(result(firstPageFixture, true))
+          .mockRejectedValueOnce(new NetworkError('offline'));
+        await mount();
+        await act(async () => controller.loadNextPage());
+        execute.mockResolvedValueOnce(
+          result({
+            ...firstPageFixture,
+            next: 'https://pokeapi.co/api/v2/pokemon?offset=40&limit=20',
+          }),
+        );
+        await recover();
+        expect(execute).toHaveBeenCalledTimes(3);
+        expect(ready().nextPage).toEqual({ offset: 40, limit: 20 });
+        expect(ready().loadMore.status).toBe('idle');
+        await act(async () => jest.advanceTimersByTime(60000));
+        expect(execute).toHaveBeenCalledTimes(3);
+        execute.mockResolvedValueOnce(result(finalPageFixture));
+        await act(async () => controller.loadNextPage());
+        expect(execute).toHaveBeenLastCalledWith({ offset: 40, limit: 20 });
+      });
+    },
+  );
+
+  it.each(['failure', 'stale-cache'])(
+    'retains stale feedback and retries an unchanged cursor after refresh %s',
+    async outcome => {
+      execute
+        .mockResolvedValueOnce(result(firstPageFixture, true))
+        .mockRejectedValueOnce(new NetworkError('offline'));
+      await mount();
+      await act(async () => controller.loadNextPage());
+      if (outcome === 'failure') {
+        execute.mockRejectedValueOnce(new NetworkError('still offline'));
+      } else {
+        execute.mockResolvedValueOnce(result(firstPageFixture, true));
+      }
+      execute.mockResolvedValueOnce(result(secondPageFixture));
+      await act(async () => {
+        await controller.retryUpdates();
+      });
+      expect(execute.mock.calls.slice(2)).toEqual([
+        [{ offset: 0, limit: 20 }, { policy: 'network-first' }],
+        [{ offset: 20, limit: 20 }, { policy: 'network-first' }],
+      ]);
+      expect(ready().hasStaleData).toBe(true);
+      expect(ready().items).toHaveLength(40);
+      expect(ready().loadMore.status).toBe('idle');
+      expect(controller.refreshError !== null).toBe(outcome === 'failure');
+    },
+  );
+
+  it('reconciles only after all refreshed pages resolve', async () => {
+    execute
+      .mockResolvedValueOnce(result(firstPageFixture))
+      .mockResolvedValueOnce(result(secondPageFixture))
+      .mockRejectedValueOnce(new HttpError(429));
+    await mount();
+    await act(async () => controller.loadNextPage());
+    await act(async () => controller.loadNextPage());
+    // The first refreshed page temporarily duplicates the old second page.
+    execute.mockResolvedValueOnce(
+      result({ ...firstPageFixture, results: secondPageFixture.results }),
+    );
+    let finish!: (value: RepositoryResult<PokemonPage>) => void;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        }),
+    );
+    await act(async () => {
+      controller.refresh();
+    });
+    expect(ready().nextPage).toBeNull();
+    expect(ready().loadMore.status).toBe('error');
+    execute.mockResolvedValueOnce(result(finalPageFixture));
+    await act(async () =>
+      finish(
+        result({
+          ...secondPageFixture,
+          results: firstPageFixture.results,
+        }),
+      ),
+    );
+    expect(execute.mock.calls.slice(3)).toEqual([
+      [{ offset: 0, limit: 20 }, { policy: 'network-first' }],
+      [{ offset: 20, limit: 20 }, { policy: 'network-first' }],
+      [{ offset: 40, limit: 20 }, { policy: 'network-first' }],
+    ]);
+    expect(ready().loadMore.status).toBe('idle');
+  });
+
   it('coalesces refresh requests arriving during pagination and preserves visible rows', async () => {
     await mount();
     let resolve!: (value: RepositoryResult<PokemonPage>) => void;
