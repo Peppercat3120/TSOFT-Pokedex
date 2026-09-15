@@ -20,6 +20,37 @@ Install JavaScript dependencies:
 npm ci
 ```
 
+### Native toolchain configuration
+
+For Android, install JDK 17 and these components through Android Studio's SDK Manager (enable **Show Package Details** to select exact versions):
+
+- Android SDK Platform 37.
+- Android SDK Build-Tools 37.0.0.
+- NDK (Side by side) 27.1.12297006.
+- Android SDK Platform-Tools, plus Android Emulator and a system image if using an emulator.
+
+Use the committed Gradle 9.4.1 wrapper; no separate Gradle installation is needed. Configure your terminal on macOS:
+
+```sh
+export JAVA_HOME="$(/usr/libexec/java_home -v 17)"
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+java -version
+adb devices
+```
+
+Adjust `ANDROID_HOME` to your SDK installation path. On Linux or Windows, set `JAVA_HOME` to your JDK 17 installation and `ANDROID_HOME` to your SDK installation, and add the corresponding executable directories to `PATH`. Alternatively, configure Gradle SDK discovery with `sdk.dir=/absolute/path/to/your/Android/sdk` in the ignored `android/local.properties` file. Use an emulator or device running Android API 24 or newer. Ensure the terminal selects JDK 17; Java 8 cannot run this project's Gradle wrapper.
+
+For iOS, the verified native build used Xcode 27.0 (27A266a) and iOS Simulator SDK 27.0. The app deployment target is iOS 15.1. The local environment used Ruby 3.1.3 and Bundler 2.3.26; `Gemfile.lock` pins CocoaPods 1.15.2. Select Xcode and install the locked Bundler version:
+
+```sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+xcodebuild -version
+gem install bundler -v 2.3.26
+```
+
+Adjust the Xcode path if needed, complete Xcode's first-launch setup, and install an iOS Simulator runtime in Xcode Settings. Build scripts resolve Node through `ios/.xcode.env`; if Xcode cannot resolve your Node installation, set `export NODE_BINARY=/absolute/path/to/node` in the ignored `ios/.xcode.env.local` file. For physical iOS devices, open `ios/TSOFTPokedex.xcworkspace` in Xcode and select your development team under the app target's **Signing & Capabilities**; simulator builds do not require signing configuration.
+
 For iOS, also install Ruby dependencies and pods:
 
 ```sh
